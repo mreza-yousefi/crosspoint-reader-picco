@@ -21,6 +21,7 @@ bool BackupConfig::load() {
   serverUrl = doc["url"] | serverUrl.c_str();
   username = doc["user"] | username.c_str();
   password = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "");
+  browseUrl = doc["browse_url"] | browseUrl.c_str();
   autoBackup = doc["auto"] | autoBackup;
   lastSuccessEpoch = doc["last_ok"] | static_cast<int64_t>(0);
   lastResult = doc["last_result"] | 0;
@@ -32,6 +33,7 @@ bool BackupConfig::save() const {
   doc["url"] = serverUrl;
   doc["user"] = username;
   doc["password_obf"] = obfuscation::obfuscateToBase64(password);
+  doc["browse_url"] = browseUrl;
   doc["auto"] = autoBackup;
   doc["last_ok"] = lastSuccessEpoch;
   doc["last_result"] = lastResult;

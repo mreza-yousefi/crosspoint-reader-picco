@@ -11,6 +11,8 @@ struct BackupConfig {
   std::string serverUrl = "";
   std::string username;
   std::string password;
+  // Where to browse the backup in a web browser (shown in settings only).
+  std::string browseUrl = "";
   bool autoBackup = true;
   int64_t lastSuccessEpoch = 0;  // 0 = never, or unknown clock at that time
   int lastResult = 0;            // BackupEngine::Result of the last run

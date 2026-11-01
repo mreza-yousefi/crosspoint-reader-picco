@@ -1,11 +1,14 @@
 #include "BackupSettingsActivity.h"
 
 #include <I18n.h>
+#include <TrustedTime.h>
 
 #include <cstdio>
+#include <ctime>
 #include <memory>
 
 #include "BackupRunActivity.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "backup/BackupEngine.h"
 #include "components/UITheme.h"
@@ -19,10 +22,11 @@ constexpr int IDX_PASSWORD = 2;
 constexpr int IDX_AUTO = 3;
 constexpr int IDX_LAST = 4;
 constexpr int IDX_RUN = 5;
+constexpr int IDX_BROWSE = 6;
 
 constexpr StrId menuNames[BackupSettingsActivity::MENU_ITEMS] = {
-    StrId::STR_SERVER_URL, StrId::STR_USERNAME,    StrId::STR_PASSWORD,
-    StrId::STR_AUTO_BACKUP, StrId::STR_LAST_BACKUP, StrId::STR_BACKUP_NOW};
+    StrId::STR_SERVER_URL,  StrId::STR_USERNAME,   StrId::STR_PASSWORD,       StrId::STR_AUTO_BACKUP,
+    StrId::STR_LAST_BACKUP, StrId::STR_BACKUP_NOW, StrId::STR_BACKUP_WEB_VIEW};
 }  // namespace
 
 BackupSettingsActivity::BackupSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -59,17 +63,18 @@ void BackupSettingsActivity::activateIndex(const int index) {
     editText(StrId::STR_USERNAME, &BackupConfig::username, 64, InputType::Text);
   } else if (index == IDX_PASSWORD) {
     editText(StrId::STR_PASSWORD, &BackupConfig::password, 128, InputType::Password);
+  } else if (index == IDX_BROWSE) {
+    editText(StrId::STR_BACKUP_WEB_VIEW, &BackupConfig::browseUrl, 128, InputType::Url);
   } else if (index == IDX_AUTO) {
     config.autoBackup = !config.autoBackup;
     config.save();
     requestUpdate();
   } else if (index == IDX_RUN) {
     if (!config.isConfigured()) return;
-    startActivityForResult(std::make_unique<BackupRunActivity>(renderer, mappedInput),
-                           [this](const ActivityResult&) {
-                             config.load();
-                             requestUpdate();
-                           });
+    startActivityForResult(std::make_unique<BackupRunActivity>(renderer, mappedInput), [this](const ActivityResult&) {
+      config.load();
+      requestUpdate();
+    });
   }
 }
 
@@ -83,21 +88,36 @@ void BackupSettingsActivity::buildScreen(UiScreen& screen) {
   rowValues_[IDX_USERNAME] = config.username.empty() ? tr(STR_NOT_SET) : config.username;
   rowValues_[IDX_PASSWORD] = config.password.empty() ? tr(STR_NOT_SET) : "******";
   rowValues_[IDX_AUTO].clear();
+  rowValues_[IDX_BROWSE] = config.browseUrl.empty() ? tr(STR_NOT_SET) : config.browseUrl;
 
-  const int64_t age = backup::secondsSinceLastBackup(config);
+  // Local date and time of the last good backup, e.g. "Today 14:32" or "28 Oct 21:05".
   char last[64];
-  if (age < 0) {
-    snprintf(last, sizeof(last), "%s", config.lastSuccessEpoch > 0 ? "?" : tr(STR_NEVER));
-  } else if (age < 2 * 3600) {
-    snprintf(last, sizeof(last), "%d min", static_cast<int>(age / 60));
-  } else if (age < 2 * 86400) {
-    snprintf(last, sizeof(last), "%d h", static_cast<int>(age / 3600));
+  if (config.lastSuccessEpoch <= 0) {
+    snprintf(last, sizeof(last), "%s", tr(STR_NEVER));
   } else {
-    snprintf(last, sizeof(last), "%d d", static_cast<int>(age / 86400));
+    const time_t when = static_cast<time_t>(config.lastSuccessEpoch);
+    struct tm whenTm{};
+    localtime_r(&when, &whenTm);
+    char clock[16];
+    strftime(clock, sizeof(clock), SETTINGS.clockFormat == 1 ? "%I:%M %p" : "%H:%M", &whenTm);
+    const time_t now = static_cast<time_t>(trustedtime::trustedNow());
+    struct tm nowTm{};
+    if (now > 0) localtime_r(&now, &nowTm);
+    const bool sameYear = now > 0 && nowTm.tm_year == whenTm.tm_year;
+    if (sameYear && nowTm.tm_yday == whenTm.tm_yday) {
+      snprintf(last, sizeof(last), "%s %s", tr(STR_TODAY), clock);
+    } else if (sameYear && nowTm.tm_yday == whenTm.tm_yday + 1) {
+      snprintf(last, sizeof(last), "%s %s", tr(STR_YESTERDAY), clock);
+    } else {
+      char date[16];
+      strftime(date, sizeof(date), sameYear ? "%d %b" : "%d %b %Y", &whenTm);
+      snprintf(last, sizeof(last), "%s %s", date, clock);
+    }
   }
   rowValues_[IDX_LAST] = last;
   if (config.lastResult != static_cast<int>(backup::Result::Ok)) {
-    rowValues_[IDX_LAST] += std::string(" (") + backup::resultLabel(static_cast<backup::Result>(config.lastResult)) + ")";
+    rowValues_[IDX_LAST] +=
+        std::string(" (") + backup::resultLabel(static_cast<backup::Result>(config.lastResult)) + ")";
   }
   rowValues_[IDX_RUN] = config.isConfigured() ? "" : std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
 

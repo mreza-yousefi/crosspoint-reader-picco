@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <SecureClient.h>
 #include <TrustedTime.h>
+#include <WiFi.h>
 #include <WiFiClient.h>
 #include <base64.h>
 #include <esp_rom_crc.h>
@@ -38,6 +39,35 @@ constexpr size_t MANIFEST_SAVE_EVERY = 10;
 constexpr char DROP_DIR[] = "/to-reader/";
 constexpr size_t PROPFIND_MAX_BYTES = 64 * 1024;
 constexpr uint32_t DROP_SETTLE_MS = 2000;
+
+// Server clock from the last response's Date header (epoch seconds, 0 = none).
+// The home server keeps network time; the reader's RTC may not.
+int64_t lastServerEpoch = 0;
+
+// "sun, 01 nov 2026 21:35:12 gmt" (lower-cased RFC 1123) -> epoch seconds, or 0.
+int64_t parseHttpDate(const std::string& v) {
+  static const char* const MONTHS[] = {"jan", "feb", "mar", "apr", "may", "jun",
+                                       "jul", "aug", "sep", "oct", "nov", "dec"};
+  int day = 0, year = 0, hh = 0, mm = 0, ss = 0;
+  char mon[4] = {};
+  const size_t comma = v.find(',');
+  if (comma == std::string::npos ||
+      sscanf(v.c_str() + comma + 1, " %d %3s %d %d:%d:%d", &day, mon, &year, &hh, &mm, &ss) != 6) {
+    return 0;
+  }
+  int month = 0;
+  while (month < 12 && strcmp(mon, MONTHS[month]) != 0) month++;
+  if (month == 12 || year < 2025) return 0;
+  // Days from civil (Howard Hinnant), month 1..12.
+  const int m = month + 1;
+  const int y = year - (m <= 2 ? 1 : 0);
+  const int era = y / 400;
+  const int yoe = y - era * 400;
+  const int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+  const int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  const int64_t days = static_cast<int64_t>(era) * 146097 + doe - 719468;
+  return days * 86400 + hh * 3600 + mm * 60 + ss;
+}
 
 struct Entry {
   uint64_t size = 0;
@@ -150,9 +180,9 @@ bool saveManifest(const std::unordered_map<std::string, Entry>& manifest) {
   if (!Storage.openFileForWrite("BACKUP", MANIFEST_TMP, f)) return false;
   char line[600];
   for (const auto& [path, e] : manifest) {
-    const int n = snprintf(line, sizeof(line), "%s\t%llu\t%lu\t%lu\n", path.c_str(),
-                           static_cast<unsigned long long>(e.size), static_cast<unsigned long>(e.mtime),
-                           static_cast<unsigned long>(e.crc));
+    const int n =
+        snprintf(line, sizeof(line), "%s\t%llu\t%lu\t%lu\n", path.c_str(), static_cast<unsigned long long>(e.size),
+                 static_cast<unsigned long>(e.mtime), static_cast<unsigned long>(e.crc));
     if (n <= 0 || static_cast<size_t>(n) >= sizeof(line) || f.write(line, n) != static_cast<size_t>(n)) {
       f.close();
       return false;
@@ -205,7 +235,8 @@ class DavClient {
     while (!basePath_.empty() && basePath_.back() == '/') basePath_.pop_back();
     const size_t colon = hostPort.find(':');
     host_ = hostPort.substr(0, colon);
-    port_ = colon == std::string::npos ? (https_ ? 443 : 80) : static_cast<uint16_t>(atoi(hostPort.c_str() + colon + 1));
+    port_ =
+        colon == std::string::npos ? (https_ ? 443 : 80) : static_cast<uint16_t>(atoi(hostPort.c_str() + colon + 1));
     hostHeader_ = hostPort;
     const std::string credentials = config.username + ":" + config.password;
     auth_ = std::string("Basic ") + base64::encode(credentials.c_str()).c_str();
@@ -350,6 +381,10 @@ class DavClient {
       if (startsWith(line, "content-length:")) contentLength = atol(line.c_str() + 15);
       if (startsWith(line, "transfer-encoding:") && line.find("chunked") != std::string::npos) chunked = true;
       if (startsWith(line, "connection:") && line.find("close") != std::string::npos) close = true;
+      if (startsWith(line, "date:")) {
+        const int64_t t = parseHttpDate(line.substr(5));
+        if (t > 0) lastServerEpoch = t;
+      }
     }
     // Only 2xx bodies go to the sink; error bodies are drained.
     const BodySink& out = status >= 200 && status < 300 ? sink : BodySink();
@@ -455,7 +490,8 @@ std::string freeBookPath(const std::string& name) {
   const std::string stem = dot == std::string::npos ? name : name.substr(0, dot);
   const std::string ext = dot == std::string::npos ? "" : name.substr(dot);
   std::string path = "/books/" + name;
-  for (int n = 2; Storage.exists(path.c_str()) && n < 100; n++) path = "/books/" + stem + " (" + std::to_string(n) + ")" + ext;
+  for (int n = 2; Storage.exists(path.c_str()) && n < 100; n++)
+    path = "/books/" + stem + " (" + std::to_string(n) + ")" + ext;
   return path;
 }
 
@@ -465,12 +501,12 @@ Result pullDropFolder(DavClient& dav, const std::string& basePath, const uint32_
                       Progress& progress, const ProgressCallback& onProgress) {
   const auto list = [&dav, &basePath](std::vector<DropFile>& out) {
     std::string xml;
-    const int status = dav.request("PROPFIND", DROP_DIR, nullptr, 0, "Depth: 1\r\n",
-                                   [&xml](const uint8_t* data, const size_t len) {
-                                     if (xml.size() + len > PROPFIND_MAX_BYTES) return false;
-                                     xml.append(reinterpret_cast<const char*>(data), len);
-                                     return true;
-                                   });
+    const int status =
+        dav.request("PROPFIND", DROP_DIR, nullptr, 0, "Depth: 1\r\n", [&xml](const uint8_t* data, const size_t len) {
+          if (xml.size() + len > PROPFIND_MAX_BYTES) return false;
+          xml.append(reinterpret_cast<const char*>(data), len);
+          return true;
+        });
     if (status == 207 && !dav.bodyFailed()) out = parseDropListing(xml, basePath);
     return status;
   };
@@ -557,6 +593,7 @@ const char* resultLabel(const Result result) {
 Result run(const BackupConfig& config, const uint32_t budgetMs, const ProgressCallback& onProgress) {
   if (!config.isConfigured()) return Result::NotConfigured;
   const uint32_t start = millis();
+  lastServerEpoch = 0;
 
   DavClient dav;
   if (!dav.begin(config)) return Result::NotConfigured;
@@ -646,7 +683,15 @@ Result runAndRecord(BackupConfig& config, const uint32_t budgetMs, const Progres
   const Result result = run(config, budgetMs, onProgress);
   config.lastResult = static_cast<int>(result);
   if (result == Result::Ok) {
-    config.lastSuccessEpoch = trustedtime::trustedNow();
+    // Prefer the server's clock (Date header of this run's last reply), then
+    // network time; the reader's own clock may run ahead (trustedNow() never
+    // goes below its persisted floor).
+    if (lastServerEpoch > 0) {
+      config.lastSuccessEpoch = lastServerEpoch;
+    } else {
+      const bool synced = WiFi.status() == WL_CONNECTED && trustedtime::syncNow(3000);
+      config.lastSuccessEpoch = synced ? static_cast<int64_t>(time(nullptr)) : trustedtime::trustedNow();
+    }
     // Persist the clock floor too: after a restart the clock resumes from it,
     // so it must not lag the backup time we just stored.
     trustedtime::note();

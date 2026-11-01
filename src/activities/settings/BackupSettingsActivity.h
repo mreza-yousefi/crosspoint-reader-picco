@@ -12,7 +12,7 @@ class BackupSettingsActivity final : public UiListActivity {
  public:
   BackupSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
-  static constexpr int MENU_ITEMS = 6;
+  static constexpr int MENU_ITEMS = 7;
 
   void onEnter() override;
 

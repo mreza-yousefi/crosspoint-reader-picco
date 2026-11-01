@@ -470,8 +470,9 @@ static void drawSleepChargeStrip(const bool charging, const uint16_t percent) {
   drawSleepStrip(charging ? tr(STR_CHARGING) : tr(STR_CHARGED), percent);
 }
 
-// Last known charge on the retained sleep screen (on battery).
-static void drawSleepBatteryStrip() { drawSleepStrip(tr(STR_BATTERY), powerManager.getBatteryPercentage()); }
+// Charge when going to sleep, on the retained sleep screen (on battery). The
+// label says so: the screen stays unchanged for as long as the reader sleeps.
+static void drawSleepBatteryStrip() { drawSleepStrip(tr(STR_BATTERY_AT_SLEEP), powerManager.getBatteryPercentage()); }
 
 // Shows the charge strip while the power HAL holds sleep on USB power, and
 // removes it again if USB goes away. Returns true when the power button ended

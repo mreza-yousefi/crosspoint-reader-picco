@@ -586,7 +586,7 @@ The connection is HTTPS and trusts only one pinned server certificate, compiled 
 
 ### 3.7 Sleep Screen
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at sleep time, or "Charging"/"Charged" with the level while on USB power.
+The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), or "Charging"/"Charged" with the level while on USB power.
 
 Modes:
 

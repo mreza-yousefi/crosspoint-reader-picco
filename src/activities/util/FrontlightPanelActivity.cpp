@@ -60,6 +60,7 @@ FrontlightPanelActivity::FrontlightPanelActivity(GfxRenderer& renderer, MappedIn
 
 void FrontlightPanelActivity::onEnter() {
   Activity::onEnter();
+  lightPanelPausesTouchLock = true;
 
   // A stored 0% predates the 1% floor (or came from the web settings): show it
   // as the floor rather than a level the slider can no longer produce. onExit
@@ -104,6 +105,7 @@ void FrontlightPanelActivity::persistLightSettings() {
 }
 
 void FrontlightPanelActivity::onExit() {
+  lightPanelPausesTouchLock = false;
   persistLightSettings();
   Activity::onExit();
 }
@@ -267,7 +269,7 @@ void FrontlightPanelActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasSideButtonChord()) {
     close();
     return;
   }

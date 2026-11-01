@@ -455,16 +455,23 @@ static void runSleepBackup(const bool allowNetwork) {
 
 #if FREEINK_DEVICE_PICCO
 // Charge strip along the bottom of the retained sleep screen.
-static void drawSleepChargeStrip(const bool charging, const uint16_t percent) {
+static void drawSleepStrip(const char* label, const uint16_t percent) {
   RenderLock lock;
   const int h = renderer.getLineHeight(SMALL_FONT_ID) + 12;
   const int y = renderer.getScreenHeight() - h;
   renderer.fillRect(0, y, renderer.getScreenWidth(), h, false);
   char text[48];
-  snprintf(text, sizeof(text), "%s  %u%%", charging ? tr(STR_CHARGING) : tr(STR_CHARGED), percent);
+  snprintf(text, sizeof(text), "%s  %u%%", label, percent);
   renderer.drawCenteredText(SMALL_FONT_ID, y + 6, text);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
+
+static void drawSleepChargeStrip(const bool charging, const uint16_t percent) {
+  drawSleepStrip(charging ? tr(STR_CHARGING) : tr(STR_CHARGED), percent);
+}
+
+// Last known charge on the retained sleep screen (on battery).
+static void drawSleepBatteryStrip() { drawSleepStrip(tr(STR_BATTERY), powerManager.getBatteryPercentage()); }
 
 // Shows the charge strip while the power HAL holds sleep on USB power, and
 // removes it again if USB goes away. Returns true when the power button ended
@@ -479,9 +486,11 @@ static bool holdSleepWhileUsbPowered() {
   const bool buttonPressed = powerManager.holdWhileUsbPowered(gpio, drawSleepChargeStrip);
   if (sleepFrame) {
     if (!buttonPressed) {
-      RenderLock lock;
-      memcpy(renderer.getFrameBuffer(), sleepFrame, frameSize);
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      {
+        RenderLock lock;
+        memcpy(renderer.getFrameBuffer(), sleepFrame, frameSize);
+      }
+      drawSleepBatteryStrip();  // unplugged: show the battery level instead
     }
     heap_caps_free(sleepFrame);
   }
@@ -535,6 +544,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   // The I2C LED driver keeps its state through deep sleep; switch it off here
   // (SETTINGS.frontlightOn keeps the preference for restore-on-wake).
   Frontlight.setOn(false);
+  if (!gpio.isUsbConnected()) drawSleepBatteryStrip();
   const bool wakeOnHeldButton = holdSleepWhileUsbPowered();
 #else
   const bool wakeOnHeldButton = false;
@@ -1083,7 +1093,7 @@ void loop() {
   if (mappedInputManager.homeButtonAction() == HomeButtonAction::ToggleFrontlight) {
     toggleFrontlight();
   }
-  if (mappedInputManager.homeButtonAction() == HomeButtonAction::Refresh ||
+  if (mappedInputManager.homeButtonAction() == HomeButtonAction::Refresh || mappedInputManager.wasPowerUpChord() ||
       (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
        mappedInputManager.wasReleased(MappedInputManager::Button::Power))) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");

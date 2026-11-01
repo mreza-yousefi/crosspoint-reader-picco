@@ -35,6 +35,8 @@ class EpubReaderActivity final : public ReaderActivity {
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   int8_t pendingManualTurn = 0;
+  int8_t lastButtonTurnDir = 0;  // +1/-1 for the last button page turn, 0 = none
+  unsigned long lastButtonTurnMs = 0;
   bool pendingManualTurnTouch = false;
   bool pendingPercentJump = false;
   float pendingSpineProgress = 0.0f;
@@ -255,6 +257,7 @@ class EpubReaderActivity final : public ReaderActivity {
   void render(RenderLock&& lock) override;
 
   bool pageTurn(bool isForward) override;
+  bool undoRecentButtonPageTurn(unsigned long windowMs) override;
   bool skipPages(int amount) override;
   bool remoteShortcut(bool readerMenu) override;
   bool isAtEndOfBook() const override;

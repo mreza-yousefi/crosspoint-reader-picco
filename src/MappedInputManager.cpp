@@ -18,6 +18,7 @@ namespace fui = freeink::ui;
 void MappedInputManager::update(const bool deferHomeButtonAction) const {
   remoteInput.reset();
   gpio.update();
+  updateButtonChords();
   // Drop a contact that starts under the touch lock for its whole life, so
   // unlocking mid-contact cannot turn its lift into a tap or swipe. A contact
   // already running keeps its release, which clears UI pressed/drag state.
@@ -114,40 +115,67 @@ MappedInputManager::Button MappedInputManager::mapScreenDirection(const Button b
   return directions[orientation][direction];
 }
 
+void MappedInputManager::updateButtonChords() const {
+  chordFrame = Chord::None;
+  const auto bit = [](const uint8_t index) { return static_cast<uint8_t>(1u << index); };
+  if (chordMask != 0) {
+    // Keep the chord's buttons hidden until all are up, their release frames included.
+    bool active = false;
+    for (const uint8_t index : {HalGPIO::BTN_UP, HalGPIO::BTN_DOWN, HalGPIO::BTN_POWER}) {
+      if ((chordMask & bit(index)) && (gpio.isPressed(index) || gpio.wasReleased(index))) active = true;
+    }
+    if (!active) chordMask = 0;
+    return;
+  }
+  if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+    chordMask = bit(HalGPIO::BTN_UP) | bit(HalGPIO::BTN_DOWN);
+    chordFrame = Chord::UpDown;
+  } else if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_UP)) {
+    chordMask = bit(HalGPIO::BTN_POWER) | bit(HalGPIO::BTN_UP);
+    chordFrame = Chord::PowerUp;
+  }
+}
+
+bool MappedInputManager::readRaw(bool (HalGPIO::*fn)(uint8_t) const, const uint8_t index) const {
+  // A chord's buttons never also turn a page or fire their own actions.
+  if (chordMask & (1u << index)) return false;
+  return (gpio.*fn)(index);
+}
+
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
   const auto sideLayout = SETTINGS.sideButtonLayout;
 
   switch (button) {
     case Button::Back:
       // Logical Back maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonBack);
+      return readRaw(fn, SETTINGS.frontButtonBack);
     case Button::Confirm:
       // Logical Confirm maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonConfirm);
+      return readRaw(fn, SETTINGS.frontButtonConfirm);
     case Button::Left:
       // Logical Left maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonLeft);
+      return readRaw(fn, SETTINGS.frontButtonLeft);
     case Button::Right:
       // Logical Right maps to user-configured front button.
-      return (gpio.*fn)(SETTINGS.frontButtonRight);
+      return readRaw(fn, SETTINGS.frontButtonRight);
     case Button::Up:
       // Side buttons remain fixed for Up/Down.
-      return (gpio.*fn)(HalGPIO::BTN_UP);
+      return readRaw(fn, HalGPIO::BTN_UP);
     case Button::Down:
       // Side buttons remain fixed for Up/Down.
-      return (gpio.*fn)(HalGPIO::BTN_DOWN);
+      return readRaw(fn, HalGPIO::BTN_DOWN);
     case Button::Power:
       // Power button bypasses remapping.
-      return (gpio.*fn)(HalGPIO::BTN_POWER);
+      return readRaw(fn, HalGPIO::BTN_POWER);
     case Button::PageBack:
       // Reader page navigation uses side buttons and can be swapped via settings.
       switch (sideLayout) {
         case CrossPointSettings::PREV_NEXT:
-          return (gpio.*fn)(isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
+          return readRaw(fn, isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
         case CrossPointSettings::NEXT_PREV:
-          return (gpio.*fn)(isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN);
+          return readRaw(fn, isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN);
         case CrossPointSettings::PREV_PREV:
-          return (gpio.*fn)(HalGPIO::BTN_UP) || (gpio.*fn)(HalGPIO::BTN_DOWN);
+          return readRaw(fn, HalGPIO::BTN_UP) || readRaw(fn, HalGPIO::BTN_DOWN);
         case CrossPointSettings::NEXT_NEXT:
         case CrossPointSettings::SIDE_BUTTONS_DISABLED:
         default:
@@ -157,11 +185,11 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
       // Reader page navigation uses side buttons and can be swapped via settings.
       switch (sideLayout) {
         case CrossPointSettings::PREV_NEXT:
-          return (gpio.*fn)(isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN);
+          return readRaw(fn, isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN);
         case CrossPointSettings::NEXT_PREV:
-          return (gpio.*fn)(isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
+          return readRaw(fn, isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
         case CrossPointSettings::NEXT_NEXT:
-          return (gpio.*fn)(HalGPIO::BTN_UP) || (gpio.*fn)(HalGPIO::BTN_DOWN);
+          return readRaw(fn, HalGPIO::BTN_UP) || readRaw(fn, HalGPIO::BTN_DOWN);
         case CrossPointSettings::PREV_PREV:
         case CrossPointSettings::SIDE_BUTTONS_DISABLED:
         default:

@@ -52,6 +52,9 @@ class Activity {
   virtual bool acceptsRemoteInput() const { return false; }
   // Returns true when the activity schedules its own forced refresh.
   virtual bool handleForcedRefresh() { return false; }
+  // Revert a button page turn made within windowMs: the first button of a
+  // not-quite-simultaneous chord already turned a page. Returns true if undone.
+  virtual bool undoRecentButtonPageTurn(unsigned long /*windowMs*/) { return false; }
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }

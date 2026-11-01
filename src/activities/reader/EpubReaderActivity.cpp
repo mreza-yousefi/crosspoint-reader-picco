@@ -1028,7 +1028,20 @@ void EpubReaderActivity::loop() {
   const bool succeeded = pageTurn(!prevTriggered);
   notePageTurn(!prevTriggered, succeeded);
   if (succeeded && (touch.prev || touch.next)) haptic_feedback::touchAction();
+  const bool byButton = succeeded && !fromTilt && !touch.prev && !touch.next;
+  lastButtonTurnDir = byButton ? (prevTriggered ? -1 : 1) : 0;
+  lastButtonTurnMs = millis();
   requestUpdate();
+}
+
+bool EpubReaderActivity::undoRecentButtonPageTurn(const unsigned long windowMs) {
+  if (lastButtonTurnDir == 0 || millis() - lastButtonTurnMs > windowMs || !section) return false;
+  const bool forward = lastButtonTurnDir < 0;
+  lastButtonTurnDir = 0;
+  const bool succeeded = pageTurn(forward);
+  notePageTurn(forward, succeeded);
+  requestUpdate();
+  return succeeded;
 }
 
 void EpubReaderActivity::jumpToPercent(int percent) {

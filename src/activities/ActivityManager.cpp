@@ -33,6 +33,12 @@
 #include "util/BmpViewerActivity.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#include "util/SlideSwitch.h"
+
+namespace {
+// A chord formed this soon after a button page turn reverts that turn.
+constexpr unsigned long CHORD_UNDO_WINDOW_MS = 600;
+}  // namespace
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -138,8 +144,14 @@ void ActivityManager::loop() {
       // The header back button shares this band; its taps stay Back.
       statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
     }
+    if (mappedInput.wasSideButtonChord() || mappedInput.wasPowerUpChord()) {
+      currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS);
+    }
+    // Under the touch lock the swipe is ignored, so Up+Down together opens it
+    // instead; the open panel pauses the lock (see lightPanelPausesTouchLock).
+    const bool sideChord = mappedInput.wasSideButtonChord() && slideSwitchLocksTouch();
     if (mappedInput.hasTouch() && currentActivity->name != "FrontlightPanel" &&
-        (statusBarTap || mappedInput.wasLightPanelGesture())) {
+        (statusBarTap || sideChord || mappedInput.wasLightPanelGesture())) {
       haptic_feedback::touchAction();
       pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
       return;

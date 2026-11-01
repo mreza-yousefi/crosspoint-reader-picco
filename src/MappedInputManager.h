@@ -112,6 +112,10 @@ class MappedInputManager {
   // Top-edge down-swipe opens the control center on touch boards.
   // ActivityManager consumes it before activity input.
   bool wasLightPanelGesture() const;
+  // Button chords, true on the frame the chord forms. While a chord is held
+  // (until all its buttons are up) its buttons read as idle everywhere else.
+  bool wasSideButtonChord() const { return chordFrame == Chord::UpDown; }  // Up + Down
+  bool wasPowerUpChord() const { return chordFrame == Chord::PowerUp; }    // Power + Up
   unsigned long getHeldTime() const;
   const GfxRenderer& getRenderer() const { return renderer; }
   Labels mapLabels(const char* back, const char* confirm, const char* previous, const char* next) const;
@@ -138,6 +142,7 @@ class MappedInputManager {
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  bool readRaw(bool (HalGPIO::*fn)(uint8_t) const, uint8_t index) const;
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
@@ -160,6 +165,10 @@ class MappedInputManager {
   mutable unsigned long touchHeldOverrideAt = 0;
   mutable uint16_t longPressFiredButtons = 0;
   mutable uint16_t suppressedReleaseButtons = 0;
+  enum class Chord : uint8_t { None, UpDown, PowerUp };
+  void updateButtonChords() const;
+  mutable uint8_t chordMask = 0;  // raw button bits hidden while a chord is held
+  mutable Chord chordFrame = Chord::None;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif

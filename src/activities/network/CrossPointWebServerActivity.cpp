@@ -15,6 +15,7 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
+#include "activities/settings/BackupRunActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/PluginEvents.h"
@@ -163,6 +164,11 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     return;
   }
 #endif
+  if (mode == NetworkMode::HOME_BACKUP) {
+    startActivityForResult(std::make_unique<BackupRunActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { onGoHome(); });
+    return;
+  }
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);

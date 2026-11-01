@@ -33,6 +33,7 @@ Welcome to the **CrossPoint** firmware. This guide outlines the hardware control
         - [Option B: Legacy Public KOReader Server (`sync.koreader.rocks`)](#option-b-legacy-public-koreader-server-synckoreaderrocks)
         - [Option C: Self-Hosted Server (Docker Compose)](#option-c-self-hosted-server-docker-compose)
         - [Syncing While Reading](#syncing-while-reading)
+      - [3.6.8 Home Backup (fork)](#368-home-backup-fork)
     - [3.7 Sleep Screen](#37-sleep-screen)
       - [Cover settings](#cover-settings)
       - [Custom images](#custom-images)
@@ -148,6 +149,8 @@ The index is created automatically the first time the Library is opened. To pick
 ### 3.5 File Transfer Screen
 
 The File Transfer screen allows you to upload and manage files on the device. When you enter the screen, choose **Join a Network**, **Calibre Wireless**, or **Create Hotspot**. The reader then starts the web server for the selected mode.
+
+**Home Backup** (this fork) is also listed here: it backs the reader up to your home server and fetches books queued there. See [Home Backup](#368-home-backup-fork).
 
 See the [web server docs](./docs/webserver.md) for more information on how to connect to the web server and upload files.
 
@@ -331,6 +334,10 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "Links and Footnotes" - A short press in reading mode opens link selection. If the page has only one link, it opens directly. After following a link, a short press returns to the previous location.
   - "Refresh" - A short press triggers a manual full-screen refresh, useful for clearing ghosting
 - **Quick return from links**: Controls whether a short press of the power button acts as Back after following a link or footnote.
+
+- **Slide Switch (BOOX Picco)**: Chooses what the side slide switch controls: **Frontlight**, **Night Mode**, or **Touch Reader Controls**. The switch position always wins over the matching on-screen toggle.
+  - With **Touch Reader Controls** (this fork), the switch is a **touch lock**: in the on position (red mark visible) the whole touchscreen is ignored, including taps, swipes, edge gestures, long-press, and the header Back button. The side Up/Down buttons still turn pages. Touches while locked do not keep the reader awake. In the off position (white) touch works normally.
+  - A touch that starts while locked stays ignored until the finger lifts, even if you unlock meanwhile.
 
 #### 3.6.4 System
 
@@ -553,6 +560,24 @@ Once any of the options above is set up, press **Confirm** while reading to open
 - **Sync Clippings** is off by default. Enable it only for a compatible CrossPoint Sync server; manual **Sync Progress** then uploads and downloads this book’s clippings too. Leave it off for ordinary KOSync servers.
 - With **Sync Behavior** set to **Ask every time**, choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress.
 - With **Sync Behavior** set to **Smart sync**, CrossPoint auto-resolves simple cases: upload when no remote progress exists, confirm and leave both unchanged when local and remote progress are already synchronized, upload when local progress is further ahead, or apply remote when remote progress is further ahead.
+
+#### 3.6.8 Home Backup (fork)
+
+This fork can back the reader up to a WebDAV server on your home network, and fetch books you queue there. Open **Settings -> Connectivity -> Home Backup**, or choose **Home Backup** on the File Transfer screen.
+
+- **Server URL**, **Username**, **Password**: the WebDAV server and its login. The password is stored obfuscated on the SD card (`/.crosspoint/backup.json`).
+- **Automatic backup (daily)**: when the reader goes to sleep and the last good backup is more than 24 hours old, it joins the last-used Wi-Fi network and backs up first. On battery (at least 30%) it stops after 60 seconds; on USB power it may run up to 15 minutes. Whatever is left continues on the next sleep. Sleep is never blocked for longer.
+- **Last backup**: how long ago the last good backup was, plus the reason if the latest run failed.
+- **Back up now**: runs a backup with a progress counter (files and MB).
+
+What a run does:
+
+1. **Fetches queued books**: every file in the server's `/to-reader/` folder is downloaded into `/books` (as `name (2).epub` if the name exists), then deleted from `/to-reader/`. Files whose size still changes during a 2-second check, such as a browser upload in progress, wait for the next run.
+2. **Uploads changes**: only files that changed since the last run (tracked in `/.crosspoint/backup/manifest.tsv`) are sent. It never deletes anything on the server.
+
+Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, `settings.json`, `state.json`, `recent.json` and `opds.json`. Excluded: credential stores (Wi-Fi, sync, OPDS tokens) and layout caches the reader rebuilds.
+
+The connection is HTTPS and trusts only one pinned server certificate, compiled into the firmware. See [docs/home-backup.md](docs/home-backup.md) for the server side and how to change the certificate.
 
 ### 3.7 Sleep Screen
 

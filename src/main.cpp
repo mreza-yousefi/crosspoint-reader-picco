@@ -43,6 +43,8 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "backup/BackupConfig.h"
+#include "backup/BackupEngine.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
@@ -377,6 +379,25 @@ static bool loadSleepFrameBuffer() {
 // drain (at-least-once). The caller's WiFi shutdown tears the radio down
 // either way. Deferrable events already queued (reader.exit) ride along in
 // the same drain.
+// Joins the last-connected saved network for work at sleep entry, with a
+// 10-second deadline. Returns true when connected.
+static bool joinLastWifiForSleep(const char* popupText) {
+  // Sleep can be the first WiFi use since boot or deep-sleep wake.
+  WIFI_STORE.loadFromFile();
+  const auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
+  if (!cred) return false;
+  GUI.drawPopup(renderer, popupText);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(cred->ssid.c_str(), cred->password.c_str());
+  const unsigned long joinDeadline = millis() + 10000;
+  while (WiFi.status() != WL_CONNECTED && millis() < joinDeadline) {
+    delay(100);
+  }
+  if (WiFi.status() != WL_CONNECTED) return false;
+  trustedtime::startSync();  // snap the clock floor while the network is up
+  return true;
+}
+
 static void deliverSleepPluginEvents(const bool allowNetwork) {
   // Activity-owned state must be queued before sleep.enter and before this
   // same-sleep drain. The hook is idempotent with ordinary activity teardown.
@@ -406,24 +427,30 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
   // same sleep, and a progress-sync plugin usually subscribes to it alone.
   if (!pluginevents::wantsConnectAny()) return;
   if (powerManager.getBatteryPercentage() < 20) return;
-  // Sleep can be the first WiFi use since boot or deep-sleep wake.
-  WIFI_STORE.loadFromFile();
-  const auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
-  if (!cred) return;
-
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(cred->ssid.c_str(), cred->password.c_str());
-  const unsigned long joinDeadline = millis() + 10000;
-  while (WiFi.status() != WL_CONNECTED && millis() < joinDeadline) {
-    delay(100);
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    trustedtime::startSync();  // snap the clock floor while the network is up
+  if (joinLastWifiForSleep(tr(STR_LOADING_POPUP))) {
     pluginevents::drain(&renderer);
   } else {
     LOG_DBG("MAIN", "Sleep-event WiFi join timed out; deferring delivery");
   }
+}
+
+// Daily home backup at sleep entry. On USB power (charging) the budget is long
+// enough for the first full upload; on battery it only tops up recent changes.
+// Sleep is never blocked for long: a partial run resumes on the next sleep.
+static void runSleepBackup(const bool allowNetwork) {
+  constexpr uint32_t BATTERY_BUDGET_MS = 60 * 1000;
+  constexpr uint32_t CHARGING_BUDGET_MS = 15 * 60 * 1000;
+  if (!allowNetwork) return;
+  BackupConfig config;
+  if (!config.load() || !config.autoBackup || !config.isConfigured()) return;
+  const int64_t age = backup::secondsSinceLastBackup(config);
+  if (age >= 0 && age < BackupConfig::AUTO_INTERVAL_SECONDS) return;
+  const bool charging = gpio.isUsbConnected();
+  if (!charging && powerManager.getBatteryPercentage() < 30) return;
+  if (WiFi.status() != WL_CONNECTED && !joinLastWifiForSleep(tr(STR_BACKING_UP))) return;
+  GUI.drawPopup(renderer, tr(STR_BACKING_UP));
+  const auto result = backup::runAndRecord(config, charging ? CHARGING_BUDGET_MS : BATTERY_BUDGET_MS, nullptr);
+  LOG_INF("MAIN", "Sleep backup: %s", backup::resultLabel(result));
 }
 
 #if FREEINK_DEVICE_PICCO
@@ -476,6 +503,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   const bool bluetoothStopped = bleturner::beforeSleep(2000);
   if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
   deliverSleepPluginEvents(bluetoothStopped);
+  runSleepBackup(bluetoothStopped);
 
   const bool isQuickResumeSleep =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||

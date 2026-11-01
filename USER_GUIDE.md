@@ -339,6 +339,10 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - With **Touch Reader Controls** (this fork), the switch is a **touch lock**: in the on position (red mark visible) the whole touchscreen is ignored, including taps, swipes, edge gestures, long-press, and the header Back button. The side Up/Down buttons still turn pages. Touches while locked do not keep the reader awake. In the off position (white) touch works normally.
   - A touch that starts while locked stays ignored until the finger lifts, even if you unlock meanwhile.
 
+- **Light panel under the touch lock (BOOX Picco, this fork)**: while the touch lock is on, press the **Up and Down side buttons together** to open the light panel (brightness and warmth). Touch works inside the panel while it is open; close it (tap below it, swipe up, or Up+Down again) and the lock is active again. The two presses never turn a page; if they were not quite simultaneous and the first one already turned a page, that turn is undone. Without the lock, swipe down from the top as usual.
+
+- **Refresh shortcut (BOOX Picco, this fork)**: press **Power and Up together** for a full screen refresh (clears ghosting), like **Power and Down** takes a screenshot.
+
 #### 3.6.4 System
 
 - **Time to Sleep** (**Settings → Display**): Set the duration of inactivity before the device automatically goes to sleep; options are 1, 3, 5, 10 (default), 15 or 30 minutes.
@@ -567,8 +571,9 @@ This fork can back the reader up to a WebDAV server on your home network, and fe
 
 - **Server URL**, **Username**, **Password**: the WebDAV server and its login. The password is stored obfuscated on the SD card (`/.crosspoint/backup.json`).
 - **Automatic backup (daily)**: when the reader goes to sleep and the last good backup is more than 24 hours old, it joins the last-used Wi-Fi network and backs up first. On battery (at least 30%) it stops after 60 seconds; on USB power it may run up to 15 minutes. Whatever is left continues on the next sleep. Sleep is never blocked for longer.
-- **Last backup**: how long ago the last good backup was, plus the reason if the latest run failed.
+- **Last backup**: local date and time of the last good backup ("Today 14:32", "Yesterday 09:10", "28 Oct 21:05"), plus the reason if the latest run failed.
 - **Back up now**: runs a backup with a progress counter (files and MB).
+- **Web view (browser)**: a note of the address where you browse the backup on your computer (for example a File Browser page). The reader does not use it.
 
 What a run does:
 
@@ -581,7 +586,9 @@ The connection is HTTPS and trusts only one pinned server certificate, compiled 
 
 ### 3.7 Sleep Screen
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep:
+The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at sleep time, or "Charging"/"Charged" with the level while on USB power.
+
+Modes:
 
 | Mode               | Behavior                                                                                                                     |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |

@@ -236,8 +236,9 @@ void handleSlideSwitch() {
       SETTINGS.screenInverted = on ? 1 : 0;
       break;
     case CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS:
-      if ((SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) == on) return;
-      SETTINGS.touchReaderControls = on ? CrossPointSettings::TOUCH_READER_ON : CrossPointSettings::TOUCH_READER_OFF;
+      // Inverted: the switch's on (red) position is the touch lock.
+      if ((SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) == !on) return;
+      SETTINGS.touchReaderControls = on ? CrossPointSettings::TOUCH_READER_OFF : CrossPointSettings::TOUCH_READER_ON;
       break;
     default:
       // Also compare the saved state: setup() lit the light from the switch
@@ -925,10 +926,11 @@ void loop() {
     }
   }
 
-  // Check for any user activity (button press or release) or active background work
+  // Check for any user activity (button press or release) or active background work.
+  // Locked touch is not activity, so a pocketed device still sleeps.
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
-      remoteActed || activityManager.preventAutoSleep()) {
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || (gpio.wasTouchActivity() && !slideSwitchLocksTouch()) ||
+      halTiltSensor.hadActivity() || remoteActed || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }

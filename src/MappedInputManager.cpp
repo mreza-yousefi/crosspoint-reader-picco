@@ -11,12 +11,21 @@
 #include "CrossPointSettings.h"
 #include "components/HeaderBackTapTarget.h"
 #include "components/UITheme.h"
+#include "util/SlideSwitch.h"
 
 namespace fui = freeink::ui;
 
 void MappedInputManager::update(const bool deferHomeButtonAction) const {
   remoteInput.reset();
   gpio.update();
+  // Drop a contact that starts under the touch lock for its whole life, so
+  // unlocking mid-contact cannot turn its lift into a tap or swipe. A contact
+  // already running keeps its release, which clears UI pressed/drag state.
+  if (slideSwitchLocksTouch()) {
+    float nx = 0.0f;
+    float ny = 0.0f;
+    if (gpio.wasTouchDown(nx, ny)) gpio.suppressTouchContact();
+  }
   const bool pagePressed =
       SETTINGS.vibration == CrossPointSettings::VIBRATION_TOUCH_PAGE && gpio.wasCapacitivePagePressed();
   HalHaptics::feedback(SETTINGS.vibration != CrossPointSettings::VIBRATION_OFF, pagePressed, SETTINGS.hapticIntensity);
@@ -193,7 +202,7 @@ void MappedInputManager::rememberTouchHeldTime() const {
 bool MappedInputManager::wasScreenTapped(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
-  if (!gpio.wasTouchTap(nx, ny)) return false;
+  if (slideSwitchLocksTouch() || !gpio.wasTouchTap(nx, ny)) return false;
   int tapX = 0;
   int tapY = 0;
   renderer.tapToLogical(nx, ny, tapX, tapY);
@@ -210,7 +219,7 @@ bool MappedInputManager::wasScreenTapped(int& x, int& y) const {
 bool MappedInputManager::wasScreenTouchPressed(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
-  if (!gpio.wasTouchDown(nx, ny)) return false;
+  if (slideSwitchLocksTouch() || !gpio.wasTouchDown(nx, ny)) return false;
   renderer.tapToLogical(nx, ny, x, y);
   return true;
 }
@@ -219,7 +228,7 @@ bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
   unsigned long heldMs = 0;
-  if (!gpio.isTouchTapCandidate(nx, ny, heldMs)) return false;
+  if (slideSwitchLocksTouch() || !gpio.isTouchTapCandidate(nx, ny, heldMs)) return false;
   if (heldMs < TOUCH_DOWN_SELECT_DELAY_MS) return false;
   renderer.tapToLogical(nx, ny, x, y);
   return true;
@@ -228,7 +237,7 @@ bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
 bool MappedInputManager::wasScreenLongPress(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
-  if (!gpio.wasTouchLongPress(nx, ny)) return false;
+  if (slideSwitchLocksTouch() || !gpio.wasTouchLongPress(nx, ny)) return false;
   // Consuming the long-press implies acting on it: suppress the rest of the
   // contact so the finger lift can't also tap whatever the action opened.
   gpio.suppressTouchContact();
@@ -240,7 +249,7 @@ bool MappedInputManager::isScreenTouchHeld(int& x, int& y) const {
   // Live contact position while the finger is down (no tap-slop gate) — drag tracking.
   float nx = 0.0f;
   float ny = 0.0f;
-  if (!gpio.isTouchHeldAt(nx, ny)) return false;
+  if (slideSwitchLocksTouch() || !gpio.isTouchHeldAt(nx, ny)) return false;
   renderer.tapToLogical(nx, ny, x, y);
   return true;
 }
@@ -290,7 +299,7 @@ bool MappedInputManager::decodeSwipe(int& sx, int& sy, int& ex, int& ey) const {
   float nys = 0.0f;
   float nxe = 0.0f;
   float nye = 0.0f;
-  if (!gpio.wasSwipe(nxs, nys, nxe, nye)) return false;
+  if (slideSwitchLocksTouch() || !gpio.wasSwipe(nxs, nys, nxe, nye)) return false;
   renderer.tapToLogical(nxs, nys, sx, sy);
   renderer.tapToLogical(nxe, nye, ex, ey);
   return true;
@@ -338,7 +347,7 @@ bool MappedInputManager::wasBackGesture() const {
   // swipe so every activity's existing Back handling picks it up.
   float nx = 0.0f;
   float ny = 0.0f;
-  if (gpio.wasTouchTap(nx, ny)) {
+  if (!slideSwitchLocksTouch() && gpio.wasTouchTap(nx, ny)) {
     int tapX = 0;
     int tapY = 0;
     renderer.tapToLogical(nx, ny, tapX, tapY);

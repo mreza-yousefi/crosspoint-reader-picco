@@ -1095,7 +1095,9 @@ void loop() {
   if (mappedInputManager.homeButtonAction() == HomeButtonAction::ToggleFrontlight) {
     toggleFrontlight();
   }
-  if (mappedInputManager.homeButtonAction() == HomeButtonAction::Refresh || mappedInputManager.wasPowerUpChord() ||
+  // Power+Up refresh only under the touch lock; otherwise the light panel's refresh is a swipe away.
+  if (mappedInputManager.homeButtonAction() == HomeButtonAction::Refresh ||
+      (mappedInputManager.wasPowerUpChord() && slideSwitchTouchLockEngaged()) ||
       (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
        mappedInputManager.wasReleased(MappedInputManager::Button::Power))) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");

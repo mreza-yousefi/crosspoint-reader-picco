@@ -145,7 +145,9 @@ void ActivityManager::loop() {
       statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
     }
     if (mappedInput.wasSideButtonChord() || mappedInput.wasPowerUpChord()) {
-      currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS);
+      // The window counts to when the chord formed, not to now: a Power+Up
+      // refresh runs first and takes ~0.5 s.
+      currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS + mappedInput.msSinceChordFormed());
     }
     // Under the touch lock the swipe is ignored, so Up+Down together opens it
     // instead; the open panel pauses the lock (see lightPanelPausesTouchLock).

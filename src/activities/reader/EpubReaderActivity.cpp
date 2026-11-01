@@ -1022,6 +1022,7 @@ void EpubReaderActivity::loop() {
   }
 
   if (turnGuardActive) {
+    LOG_DBG("ERS", "Page turn %s queued", prevTriggered ? "back" : "forward");
     pendingManualTurn = prevTriggered ? -1 : 1;
     pendingManualTurnTouch = touch.prev || touch.next;
     return;
@@ -1031,6 +1032,7 @@ void EpubReaderActivity::loop() {
   notePageTurn(!prevTriggered, succeeded);
   if (succeeded && (touch.prev || touch.next)) haptic_feedback::touchAction();
   const bool byButton = succeeded && !fromTilt && !touch.prev && !touch.next;
+  LOG_DBG("ERS", "Page turn %s (%s)", prevTriggered ? "back" : "forward", byButton ? "button" : "other");
   lastButtonTurnDir = byButton ? (prevTriggered ? -1 : 1) : 0;
   lastButtonTurnMs = millis();
   requestUpdate();
@@ -1039,9 +1041,11 @@ void EpubReaderActivity::loop() {
 bool EpubReaderActivity::undoRecentButtonPageTurn(const unsigned long windowMs) {
   // A button turn queued behind a render has not happened yet: just drop it.
   if (pendingManualTurn != 0 && !pendingManualTurnTouch) {
+    LOG_DBG("ERS", "Chord: dropped queued page turn");
     pendingManualTurn = 0;
     return true;
   }
+  LOG_DBG("ERS", "Chord: last button turn %d, %lu ms ago", lastButtonTurnDir, millis() - lastButtonTurnMs);
   if (lastButtonTurnDir == 0 || millis() - lastButtonTurnMs > windowMs || !section) return false;
   const bool forward = lastButtonTurnDir < 0;
   lastButtonTurnDir = 0;

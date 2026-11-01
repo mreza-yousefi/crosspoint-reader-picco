@@ -16,6 +16,12 @@ inline bool slideSwitchOwnsLight() { return slideSwitchOwns(CrossPointSettings::
 // (opened with Up+Down under the lock) can be used; closing it re-locks.
 inline bool lightPanelPausesTouchLock = false;
 
+// The switch is in its touch-lock position, even while the light panel
+// pauses the lock (the chord shortcuts stay available in the panel).
+inline bool slideSwitchTouchLockEngaged() {
+  return slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS) && gpio.isToggleSwitchOn();
+}
+
 // A switch bound to touch controls and set on (red) locks the whole
 // touchscreen, gestures included; the physical buttons keep working.
 inline bool slideSwitchLocksTouch() {

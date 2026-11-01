@@ -4,6 +4,7 @@
 #include <FreeInkUICore.h>
 #include <GfxRenderer.h>
 #include <HalHaptics.h>
+#include <Logging.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -130,9 +131,13 @@ void MappedInputManager::updateButtonChords() const {
   if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
     chordMask = bit(HalGPIO::BTN_UP) | bit(HalGPIO::BTN_DOWN);
     chordFrame = Chord::UpDown;
+    chordFormedMs = millis();
+    LOG_DBG("INPUT", "Chord Up+Down");
   } else if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_UP)) {
     chordMask = bit(HalGPIO::BTN_POWER) | bit(HalGPIO::BTN_UP);
     chordFrame = Chord::PowerUp;
+    chordFormedMs = millis();
+    LOG_DBG("INPUT", "Chord Power+Up");
   }
 }
 

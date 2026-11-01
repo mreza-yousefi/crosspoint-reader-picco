@@ -116,6 +116,7 @@ class MappedInputManager {
   // (until all its buttons are up) its buttons read as idle everywhere else.
   bool wasSideButtonChord() const { return chordFrame == Chord::UpDown; }  // Up + Down
   bool wasPowerUpChord() const { return chordFrame == Chord::PowerUp; }    // Power + Up
+  bool isButtonChordHeld() const { return chordMask != 0; }
   unsigned long getHeldTime() const;
   const GfxRenderer& getRenderer() const { return renderer; }
   Labels mapLabels(const char* back, const char* confirm, const char* previous, const char* next) const;

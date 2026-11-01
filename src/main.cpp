@@ -1068,8 +1068,9 @@ void loop() {
 
   if (!x4ProAwaitingClickWindow && powerReleasedSinceWake && millis() >= allowSleepAt &&
       gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getPowerButtonHeldTime() > SETTINGS.getPowerButtonDuration()) {
-    // If the screenshot combination is potentially being pressed, don't sleep
-    if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
+    // If the screenshot combination is potentially being pressed, don't sleep;
+    // nor during a button chord (Power+Up refresh) until all its buttons are up.
+    if (gpio.isPressed(HalGPIO::BTN_DOWN) || mappedInputManager.isButtonChordHeld()) {
       return;
     }
     LOG_DBG("MAIN", "Power button held %lums, sleeping", gpio.getPowerButtonHeldTime());

@@ -971,6 +971,8 @@ void EpubReaderActivity::loop() {
     const bool succeeded = pageTurn(forward);
     notePageTurn(forward, succeeded);
     if (succeeded && pendingManualTurnTouch) haptic_feedback::touchAction();
+    lastButtonTurnDir = succeeded && !pendingManualTurnTouch ? (forward ? 1 : -1) : 0;
+    lastButtonTurnMs = millis();
     pendingManualTurnTouch = false;
     requestUpdate();
     return;
@@ -1035,6 +1037,11 @@ void EpubReaderActivity::loop() {
 }
 
 bool EpubReaderActivity::undoRecentButtonPageTurn(const unsigned long windowMs) {
+  // A button turn queued behind a render has not happened yet: just drop it.
+  if (pendingManualTurn != 0 && !pendingManualTurnTouch) {
+    pendingManualTurn = 0;
+    return true;
+  }
   if (lastButtonTurnDir == 0 || millis() - lastButtonTurnMs > windowMs || !section) return false;
   const bool forward = lastButtonTurnDir < 0;
   lastButtonTurnDir = 0;

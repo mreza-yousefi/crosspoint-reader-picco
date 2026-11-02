@@ -92,7 +92,13 @@ The screen also closes if a failed forward lookup cannot reload the current defi
 
 ## Persian (and other Arabic-script) definitions
 
-Definitions are drawn in the reading font, so a Latin-only font shows `?` for Persian. Instead of switching your reading font, add the Persian glyphs to it with `scripts/merge_persian_font.py` (Latin glyphs are unchanged, so books look the same), copy the result to `/fonts/<Family>Fa/`, restart, and pick it under **Settings → Reader → Text Settings**. The script takes TTF files; for a downloaded `.cpfont` family, start from the font's original TTF release.
+Definitions are drawn in the reading font, so a Latin-only font shows `?` for Persian. Instead of switching your reading font, add the Persian glyphs to it with `scripts/merge_persian_font.py` (Latin glyphs are unchanged, so books look the same), copy the result to `/fonts/<Family>Fa/`, restart, and pick it under **Settings → Reader → Text Settings**. The script takes TTF files; for a downloaded `.cpfont` family, start from the font's original TTF release. For speed, convert the merged TTFs to `.cpfont` (pre-rendered glyphs draw much faster than TTF on the device):
+
+    python3 lib/EpdFont/scripts/fontconvert_sdcard.py --regular LiterataFa-Regular.ttf --bold LiterataFa-Bold.ttf \
+      --italic LiterataFa-Italic.ttf --bolditalic LiterataFa-BoldItalic.ttf \
+      --intervals latin-ext,punctuation,arabic --sizes 12,14,16,18 --name LiterataFa --output-dir ./LiterataFa/
+
+Keep only the `.cpfont` files in the family folder (a `.cpfont` takes priority over TTFs anyway).
 
 The English-Persian **Arianpur (OpenDictionary)** StarDict works well (about 183,000 entries). Its pronunciations use `ǝ` (U+01DD) and `ŋ`, which many reading fonts lack; replacing them with `ə` (U+0259) and `ng` keeps every entry the same length, so the `.idx` stays valid.
 

@@ -65,18 +65,13 @@ void recordLookup(const std::string& word, const std::string& headword, const st
 void DictionaryWordSelectActivity::onEnter() {
   Activity::onEnter();
   fontId = SETTINGS.getReaderFontId();
+  // No busy popup by default: the pressed Look Up button already acknowledged
+  // the tap, and each extra e-ink refresh here costs ~0.5 s (see performLookup).
   lookupPending = true;
-  popupMsg = StrId::STR_DICT_LOOKING_UP;
-  popup = Popup::Busy;
-  requestUpdate();
+  popup = Popup::None;
 }
 
 void DictionaryWordSelectActivity::performLookup() {
-  {
-    RenderLock lock;
-    popupMsg = StrId::STR_DICT_LOOKING_UP;
-    popup = Popup::Busy;
-  }
   if (!dictOpenAttempted) {
     dictOpenAttempted = true;
     dictOpenOk = dict.open(SETTINGS.dictionaryName);
@@ -85,11 +80,15 @@ void DictionaryWordSelectActivity::performLookup() {
     // the sidecar ourselves, which is handled below.
     dictNeedsIndex = dictOpenOk && dict.needsIndex();
   }
-  {
+  // One paint: the clean page the definition sheet will sit on. Only a first-use
+  // index build (seconds) gets a busy popup, cleared again before the sheet.
+  const bool showedBusy = dictNeedsIndex;
+  if (showedBusy) {
     RenderLock lock;
-    popupMsg = dictNeedsIndex ? StrId::STR_DICT_INDEXING : StrId::STR_DICT_LOOKING_UP;
+    popupMsg = StrId::STR_DICT_INDEXING;
+    popup = Popup::Busy;
   }
-  requestUpdateAndWait();  // paint the page + busy popup before blocking on SD
+  requestUpdateAndWait();
 
   bool ok = dictOpenOk;
   Dictionary::IndexResult indexResult = Dictionary::IndexResult::Ok;
@@ -105,13 +104,14 @@ void DictionaryWordSelectActivity::performLookup() {
 
   if (found) {
     recordLookup(lookupText, headword, definition, dict.definitionsAreHtml());
-    {
-      RenderLock lock;
-      popup = Popup::None;
+    if (showedBusy) {
+      // The definition sheet keeps the frame above it: clear the popup first.
+      {
+        RenderLock lock;
+        popup = Popup::None;
+      }
+      requestUpdateAndWait();
     }
-    // The definition sheet keeps the frame above it: repaint the page without
-    // the "Looking up..." popup first.
-    requestUpdateAndWait();
     {
       RenderLock lock;
       page.reset();

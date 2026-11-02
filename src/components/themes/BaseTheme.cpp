@@ -132,13 +132,10 @@ void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bo
   drawBatteryOutline(renderer, rect.x, y, rect.width, rect.height);
   fillBatteryIcon(renderer, iconRect, percentage);
 
-  // Touch lock engaged (slide switch): a small padlock after the battery.
-  if (slideSwitchTouchLockEngaged()) {
-    int x = rect.x + rect.width + 6;
-    if (showPercentage) {
-      const auto percentageText = std::to_string(percentage) + "%";
-      x += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, percentageText.c_str());
-    }
+  // Touch lock engaged (slide switch): a small padlock centred in top bars; the reader's bottom status bar keeps its
+  // clock clear (the reader draws its padlock in the top corner instead).
+  if (slideSwitchTouchLockEngaged() && rect.y < renderer.getScreenHeight() / 2) {
+    const int x = (renderer.getScreenWidth() - 9) / 2;  // centred in the top bar
     const int bodyH = std::max(6, rect.height * 3 / 5);
     const int bodyY = y + rect.height - bodyH;
     renderer.drawRect(x + 2, bodyY - 5, 5, 6, true);  // shackle
@@ -481,6 +478,15 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     props.styles.normal.borderWidth = tokens.headerUnderline;
   }
   fui::header(ui.frame, band, props);
+
+  // Touch lock engaged (slide switch): a small padlock centred in the status strip.
+  if (slideSwitchTouchLockEngaged()) {
+    const auto& m = UITheme::getInstance().getMetrics();
+    const int x = (renderer.getScreenWidth() - 9) / 2;
+    const int y = rect.y + std::max(0, (static_cast<int>(m.batteryBarHeight) - 12) / 2);
+    renderer.drawRect(x + 2, y, 5, 6, true);  // shackle
+    renderer.fillRect(x, y + 5, 9, 7, true);  // body
+  }
 }
 
 void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {

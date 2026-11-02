@@ -117,8 +117,8 @@ class MappedInputManager {
   bool wasSideButtonChord() const { return chordFrame == Chord::UpDown; }  // Up + Down
   bool wasPowerUpChord() const { return chordFrame == Chord::PowerUp; }    // Power + Up
   bool isButtonChordHeld() const { return chordMask != 0; }
-  // Second press of a quick Power double-click (its press and release are hidden).
-  bool wasPowerDoubleClick() const { return powerDoubleClickFrame; }
+  // Up held ~0.3 s under the touch lock (dictionary); the hold is then hidden.
+  bool wasUpHold() const { return upHoldFrame; }
   // Time since the last chord formed (work such as a refresh may run in between).
   unsigned long msSinceChordFormed() const { return millis() - chordFormedMs; }
   unsigned long getHeldTime() const;
@@ -175,9 +175,11 @@ class MappedInputManager {
   mutable uint8_t chordMask = 0;  // raw button bits hidden while a chord is held
   mutable Chord chordFrame = Chord::None;
   mutable unsigned long chordFormedMs = 0;
-  static constexpr unsigned long POWER_DOUBLE_CLICK_MS = 400;
-  mutable unsigned long lastPowerClickMs = 0;
-  mutable bool powerDoubleClickFrame = false;
+  static constexpr unsigned long UP_HOLD_LOOKUP_MS = 300;
+  mutable unsigned long upPressedAt = 0;
+  mutable bool upHoldFrame = false;
+  mutable bool hideUpPressFrame = false;    // locked Up press, held back
+  mutable bool replayUpPressFrame = false;  // that press, replayed at release
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif

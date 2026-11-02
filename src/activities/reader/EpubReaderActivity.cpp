@@ -60,6 +60,7 @@
 #include "util/BookmarkUtil.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#include "util/SlideSwitch.h"
 
 namespace {
 // The X4 Pro and X4 Classic carry the X4's panel but sit outside isXteinkDevice()
@@ -2461,6 +2462,15 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
 }
 
 void EpubReaderActivity::renderStatusBar() const {
+  if (slideSwitchTouchLockEngaged()) {
+    // Touch lock indicator: a small padlock in the top-right page margin.
+    int top, right, bottom, left;
+    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    const int x = renderer.getScreenWidth() - right - 13;
+    const int y = top + 3;
+    renderer.drawRect(x + 2, y, 5, 6, true);  // shackle
+    renderer.fillRect(x, y + 5, 9, 7, true);  // body
+  }
   const int currentPage = section ? section->currentPage + 1 : 1;
   const float pageCount = section ? section->estimatedTotalPages() : 1;
   const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;

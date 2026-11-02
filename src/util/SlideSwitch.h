@@ -15,7 +15,7 @@ inline bool slideSwitchOwnsLight() { return slideSwitchOwns(CrossPointSettings::
 // Set while the light panel is open: it pauses the touch lock so the panel
 // (opened with Up+Down under the lock) can be used; closing it re-locks.
 inline bool lightPanelPausesTouchLock = false;
-// Set while a Power double-click dictionary lookup runs under the lock (word
+// Set while an Up hold dictionary lookup runs under the lock (word
 // selection and definitions); cleared when the reader is back in front.
 inline bool lookupPausesTouchLock = false;
 

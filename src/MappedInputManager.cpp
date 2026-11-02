@@ -118,8 +118,15 @@ MappedInputManager::Button MappedInputManager::mapScreenDirection(const Button b
 
 void MappedInputManager::updateButtonChords() const {
   chordFrame = Chord::None;
-  powerDoubleClickFrame = false;
+  upHoldFrame = false;
+  hideUpPressFrame = false;
+  replayUpPressFrame = false;
   const auto bit = [](const uint8_t index) { return static_cast<uint8_t>(1u << index); };
+  // Under the lock a short Up click acts on release: its press edge is held back
+  // and replayed when the finger lifts, so a hold can open the dictionary with
+  // no page turned first.
+  if (upPressedAt != 0 && gpio.wasReleased(HalGPIO::BTN_UP)) replayUpPressFrame = true;
+  if (!gpio.isPressed(HalGPIO::BTN_UP)) upPressedAt = 0;
   if (chordMask != 0) {
     // Keep the chord's buttons hidden until all are up, their release frames included.
     bool active = false;
@@ -129,19 +136,24 @@ void MappedInputManager::updateButtonChords() const {
     if (!active) chordMask = 0;
     return;
   }
-  // Power double-click: a second press soon after a short click. Hide this
-  // press and its release.
-  if (gpio.wasReleased(HalGPIO::BTN_POWER) && !gpio.isPressed(HalGPIO::BTN_UP) &&
-      gpio.getPowerButtonHeldTime() <= SETTINGS.getPowerButtonDuration()) {
-    lastPowerClickMs = millis();  // page turn stays instant; a double-click undoes it
-  } else if (gpio.wasPressed(HalGPIO::BTN_POWER) && lastPowerClickMs != 0 &&
-             millis() - lastPowerClickMs <= POWER_DOUBLE_CLICK_MS && !gpio.isPressed(HalGPIO::BTN_UP)) {
-    lastPowerClickMs = 0;
-    chordMask = bit(HalGPIO::BTN_POWER);
-    chordFormedMs = millis();
-    powerDoubleClickFrame = true;
-    LOG_DBG("INPUT", "Power double-click");
-    return;
+  // Up held alone under the touch lock: dictionary lookup. Fires before the
+  // reader's 700 ms chapter-skip long press, and the hold is then hidden.
+  const bool upAlone = !gpio.isPressed(HalGPIO::BTN_DOWN) && !gpio.isPressed(HalGPIO::BTN_POWER);
+  if (slideSwitchTouchLockEngaged() && upAlone) {
+    if (gpio.wasPressed(HalGPIO::BTN_UP)) {
+      upPressedAt = millis();
+      hideUpPressFrame = true;
+    }
+    if (upPressedAt != 0 && gpio.isPressed(HalGPIO::BTN_UP) && millis() - upPressedAt >= UP_HOLD_LOOKUP_MS) {
+      upPressedAt = 0;
+      chordMask = bit(HalGPIO::BTN_UP);
+      chordFormedMs = millis();
+      upHoldFrame = true;
+      LOG_DBG("INPUT", "Up hold");
+      return;
+    }
+  } else {
+    upPressedAt = 0;
   }
   if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
     chordMask = bit(HalGPIO::BTN_UP) | bit(HalGPIO::BTN_DOWN);
@@ -159,6 +171,10 @@ void MappedInputManager::updateButtonChords() const {
 bool MappedInputManager::readRaw(bool (HalGPIO::*fn)(uint8_t) const, const uint8_t index) const {
   // A chord's buttons never also turn a page or fire their own actions.
   if (chordMask & (1u << index)) return false;
+  if (index == HalGPIO::BTN_UP && fn == &HalGPIO::wasPressed) {
+    if (hideUpPressFrame) return false;   // locked Up: wait for hold or release
+    if (replayUpPressFrame) return true;  // short click: its press, on release
+  }
   return (gpio.*fn)(index);
 }
 

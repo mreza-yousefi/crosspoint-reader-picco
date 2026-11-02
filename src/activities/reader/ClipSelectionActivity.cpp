@@ -999,7 +999,7 @@ void ClipSelectionActivity::render(RenderLock&&) {
   if (wordCount != 0) drawSelection();
   renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
   if (isLookup()) {
-    // Say why the page looks different (also after a Power double-click).
+    // Say why the page looks different (also after an Up hold).
     const int h = renderer.getLineHeight(SMALL_FONT_ID) + 6;
     renderer.fillRect(0, safe.y, renderer.getScreenWidth(), h, false);
     renderer.drawCenteredText(SMALL_FONT_ID, safe.y + 3, tr(STR_DICT_MODE_HINT), true, EpdFontFamily::BOLD);

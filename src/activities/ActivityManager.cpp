@@ -156,18 +156,12 @@ void ActivityManager::loop() {
       // The header back button shares this band; its taps stay Back.
       statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
     }
-    // Power double-click under the touch lock on a book page: dictionary lookup
+    // Up hold under the touch lock on a book page: dictionary lookup
     // with touch paused for its duration (main.cpp re-locks once the reader is
     // back in front). Unlocked, a long-press on a word already offers Look Up.
-    // The first click already turned a page: reset it before the lookup opens,
-    // so word selection shows the original page (no visible flip back).
-    if (mappedInput.wasPowerDoubleClick() && slideSwitchTouchLockEngaged() && currentActivity->acceptsRemoteInput()) {
-      const bool undone =
-          currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS + mappedInput.msSinceChordFormed());
+    // Up hold: the locked Up press was held back, so no page turned.
+    if (mappedInput.wasUpHold() && slideSwitchTouchLockEngaged() && currentActivity->acceptsRemoteInput()) {
       if (currentActivity->startDictionaryLookup()) {
-        // Word selection paints the (restored) page itself: skip the reader's
-        // own repaint of it, which would show as a flip back first.
-        if (undone) requestedUpdate.store(false);
         lookupPausesTouchLock = true;
         lookupOwner = currentActivity.get();
         lookupLeftOwner = false;

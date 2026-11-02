@@ -344,7 +344,11 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
 - **Light panel under the touch lock (BOOX Picco, this fork)**: while the touch lock is on, press the **Up and Down side buttons together** to open the light panel (brightness and warmth). Touch works inside the panel while it is open; close it (tap below it, swipe up, or Up+Down again) and the lock is active again. The two presses never turn a page; if they were not quite simultaneous and the first one already turned a page, that turn is undone. Without the lock, swipe down from the top as usual.
   - When the reader wakes straight into a book with the touch lock on, the light panel slides down over the page first, marked "Touch locked · light check", so a light left on is easy to notice. Waking to Home with the lock on shows a short "Touch locked" note instead. Tap below it to close it; the lock is active again.
 
+- **Touch lock indicator (this fork)**: while the touch lock is engaged, a small padlock appears next to the battery in the status bar and headers.
+
 - **Dictionary under the touch lock (BOOX Picco, this fork)**: double-click **Power** on a book page to open dictionary word selection ("Dictionary: tap or select a word" at the top). Touch works for the lookup; the first click's page turn is undone, so selection shows the page you were on. Returning to the book (after a definition, or when a word is not found) re-locks touch, and global gestures stay off during the lookup. Without the lock, long-press a word and choose Look Up.
+  - In this dictionary mode the selection menu shows **Look Up | Another word | +**. **Another word** clears the selection so you can tap a different word; **+** switches to **Clip | Bookmark | <** (and **<** back). A small finger slide keeps the touched word selected; drag clearly to extend the selection.
+  - Every word you look up is appended to `/vocabulary/lookups.tsv` (date, word, dictionary headword, book, start of the definition) for later review; Home Backup copies it to your server too.
 
 - **Refresh shortcut under the touch lock (BOOX Picco, this fork)**: while the touch lock is on (also with the light panel open), press **Power and Up together** for a full screen refresh (clears ghosting), like **Power and Down** takes a screenshot. Without the lock, use the refresh button in the light panel. As with Up+Down, the presses never turn a page, a page turn from a not-quite-simultaneous press is undone, and holding the pair does not put the reader to sleep.
 
@@ -591,7 +595,7 @@ The connection is HTTPS and trusts only one pinned server certificate, compiled 
 
 ### 3.7 Sleep Screen
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), or "Charging"/"Charged" with the level while on USB power.
+The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), followed by the progress in the open book ("· Book 34%") when it went to sleep from a book, or "Charging"/"Charged" with the level while on USB power.
 
 Modes:
 

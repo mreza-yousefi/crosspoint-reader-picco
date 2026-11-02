@@ -25,6 +25,7 @@
 #include "components/icons/cover.h"
 #include "components/icons/headerIcons.h"
 #include "fontIds.h"
+#include "util/SlideSwitch.h"
 
 void BaseTheme::setCheckboxRow(freeink::ui::ListItem& item, const bool checked) {
   item.value = nullptr;
@@ -130,6 +131,19 @@ void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bo
   const Rect iconRect{rect.x, y, rect.width, rect.height};
   drawBatteryOutline(renderer, rect.x, y, rect.width, rect.height);
   fillBatteryIcon(renderer, iconRect, percentage);
+
+  // Touch lock engaged (slide switch): a small padlock after the battery.
+  if (slideSwitchTouchLockEngaged()) {
+    int x = rect.x + rect.width + 6;
+    if (showPercentage) {
+      const auto percentageText = std::to_string(percentage) + "%";
+      x += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, percentageText.c_str());
+    }
+    const int bodyH = std::max(6, rect.height * 3 / 5);
+    const int bodyY = y + rect.height - bodyH;
+    renderer.drawRect(x + 2, bodyY - 5, 5, 6, true);  // shackle
+    renderer.fillRect(x, bodyY, 9, bodyH, true);      // body
+  }
 }
 
 void BaseTheme::drawCoverPlaceholder(const GfxRenderer& renderer, Rect rect) {

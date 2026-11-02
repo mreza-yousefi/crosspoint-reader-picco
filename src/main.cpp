@@ -456,13 +456,21 @@ static void runSleepBackup(const bool allowNetwork) {
 
 #if FREEINK_DEVICE_PICCO
 // Charge strip along the bottom of the retained sleep screen.
+// Whole-book progress of the book open at sleep entry, or -1 (Picco strip).
+static int sleepBookPercent = -1;
+
 static void drawSleepStrip(const char* label, const uint16_t percent) {
   RenderLock lock;
   const int h = renderer.getLineHeight(SMALL_FONT_ID) + 12;
   const int y = renderer.getScreenHeight() - h;
   renderer.fillRect(0, y, renderer.getScreenWidth(), h, false);
-  char text[48];
-  snprintf(text, sizeof(text), "%s  %u%%", label, percent);
+  char text[96];
+  if (sleepBookPercent >= 0) {
+    snprintf(text, sizeof(text), "%s  %u%%   \xC2\xB7   %s  %d%%", label, percent, tr(STR_BOOK_PROGRESS),
+             sleepBookPercent);
+  } else {
+    snprintf(text, sizeof(text), "%s  %u%%", label, percent);
+  }
   renderer.drawCenteredText(SMALL_FONT_ID, y + 6, text);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
@@ -534,6 +542,13 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   APP_STATE.saveToFile();
 
+#if FREEINK_DEVICE_PICCO
+  {
+    // Read before the reader is torn down: the sleep strip shows it.
+    const ScreenshotInfo info = activityManager.getScreenshotInfo();
+    sleepBookPercent = info.readerType != ScreenshotInfo::ReaderType::None ? info.progressPercent : -1;
+  }
+#endif
   activityManager.goToSleep(fromTimeout);
 
   if (isQuickResumeSleep) {

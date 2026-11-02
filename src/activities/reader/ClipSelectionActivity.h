@@ -69,7 +69,13 @@ class ClipSelectionActivity final : public Activity {
   const Page& pageAt(size_t index) const { return *(borrowedPages.empty() ? pages[index] : borrowedPages[index]); }
   bool isLookup() const { return mode != Mode::Clip; }
   int firstAction() const { return lookupAvailable ? 0 : 1; }
-  int actionCount() const { return mode == Mode::DefinitionLookup ? 1 : 3 - firstAction(); }
+  // Dictionary mode (from the reader): larger buttons in two pages,
+  // [Look Up | Another word | +] and, after +, [Clip | Bookmark | <].
+  bool lookupMenu() const { return mode == Mode::Lookup && lookupAvailable; }
+  int actionCount() const { return mode == Mode::DefinitionLookup ? 1 : lookupMenu() ? 3 : 3 - firstAction(); }
+  Rect actionButton(int action) const;
+  const char* actionLabel(int action) const;
+  void drawLookupActions() const;
   int actionAt(int x, int y) const;
   void flashAction(int action);
   int closestInRow(uint16_t row, int centerX) const;
@@ -108,6 +114,7 @@ class ClipSelectionActivity final : public Activity {
   const int initialY;
   const Mode mode;
   bool lookupAvailable = false;
+  bool lookupMoreActions = false;  // dictionary-mode menu shows Clip/Bookmark
   OptionPopup actionPopup;
   // ponytail: retain 16 button frames during refresh; increase only if overflow is observed.
   std::array<uint8_t, 16> pendingButtons{};

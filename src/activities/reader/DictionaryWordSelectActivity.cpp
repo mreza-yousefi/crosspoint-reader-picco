@@ -2,19 +2,63 @@
 
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <ctime>
+
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "DictionaryDefinitionActivity.h"
 #include "components/UITheme.h"
+#include "util/HtmlToPlainText.h"
 
 namespace {
 
 constexpr unsigned long POPUP_DURATION_MS = 1500;
 
 void indexBuildYield(void*) { vTaskDelay(1); }
+
+// Appends one TSV line per successful lookup to /vocabulary/lookups.tsv, for
+// reviewing new words later (the home backup copies it too). One SD append.
+void recordLookup(const std::string& word, const std::string& headword, const std::string& definition,
+                  const bool html) {
+  constexpr size_t MAX_DEF = 160;
+  const auto clean = [](std::string s) {
+    for (auto& c : s) {
+      if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+    }
+    return s;
+  };
+  std::string def = html ? htmlToPlainText(definition.substr(0, 2048), ' ') : definition.substr(0, 2048);
+  if (def.size() > MAX_DEF) {
+    size_t cut = MAX_DEF;
+    while (cut > 0 && (static_cast<unsigned char>(def[cut]) & 0xC0) == 0x80) --cut;  // UTF-8 boundary
+    def.resize(cut);
+  }
+  char when[24] = "";
+  const time_t now = static_cast<time_t>(trustedtime::trustedNow());
+  if (now > 0) {
+    struct tm local{};
+    localtime_r(&now, &local);
+    strftime(when, sizeof(when), "%Y-%m-%d %H:%M", &local);
+  }
+  std::string book = APP_STATE.openEpubPath;
+  const size_t slash = book.rfind('/');
+  if (slash != std::string::npos) book.erase(0, slash + 1);
+  Storage.ensureDirectoryExists("/vocabulary");
+  const bool fresh = !Storage.exists("/vocabulary/lookups.tsv");
+  HalFile f = Storage.open("/vocabulary/lookups.tsv", O_WRITE | O_CREAT | O_APPEND);
+  if (!f) return;
+  if (fresh) f.print("date\tword\theadword\tbook\tdefinition\n");
+  const std::string line =
+      std::string(when) + '\t' + clean(word) + '\t' + clean(headword) + '\t' + clean(book) + '\t' + clean(def) + '\n';
+  f.write(reinterpret_cast<const uint8_t*>(line.data()), line.size());
+  f.close();
+}
 
 }  // namespace
 
@@ -60,6 +104,7 @@ void DictionaryWordSelectActivity::performLookup() {
   const bool found = ok && dict.lookup(lookupText.c_str(), definition, headword, &result);
 
   if (found) {
+    recordLookup(lookupText, headword, definition, dict.definitionsAreHtml());
     {
       RenderLock lock;
       popup = Popup::None;

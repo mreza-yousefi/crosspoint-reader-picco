@@ -29,6 +29,10 @@ using Input = WordSelectionInput;
 namespace {
 
 constexpr int TOUCH_DRAG_MOVEMENT_PX = 4;
+// Dictionary mode: a finger has to travel this far before a drag extends the
+// selection beyond the touched word (a word, not a line, is the usual target).
+constexpr int LOOKUP_DRAG_X_PX = 24;
+constexpr int LOOKUP_DRAG_Y_PX = 28;
 constexpr unsigned long TOUCH_PAGE_ADVANCE_HOLD_MS = 1000;
 constexpr int TOUCH_PAGE_END_DWELL_SLOP_PX = 8;
 constexpr ClippingResult::Action SELECTION_ACTIONS[] = {ClippingResult::Action::Lookup, ClippingResult::Action::Clip,
@@ -491,6 +495,22 @@ void ClipSelectionActivity::loop() {
       const int action = actionAt(touchX, touchY);
       if (action >= 0) {
         flashAction(action);  // visible "pressed" state before the action runs
+        if (lookupMenu()) {
+          if (action == 2) {  // + / <: switch between the two menu pages
+            lookupMoreActions = !lookupMoreActions;
+            requestUpdate();
+            return;
+          }
+          if (lookupMoreActions) {
+            confirmSelection(action == 0 ? ClippingResult::Action::Clip : ClippingResult::Action::Bookmark);
+            return;
+          }
+          if (action == 1) {  // Another word: drop the selection, tap a new word
+            rangeStart = -1;
+            requestUpdate();
+            return;
+          }
+        }
         confirmSelection(SELECTION_ACTIONS[firstAction() + action]);
         return;
       }
@@ -519,7 +539,9 @@ void ClipSelectionActivity::loop() {
       touchDragHasMoved = touchDragHasMoved || deltaX >= TOUCH_DRAG_MOVEMENT_PX || deltaX <= -TOUCH_DRAG_MOVEMENT_PX ||
                           deltaY >= TOUCH_DRAG_MOVEMENT_PX || deltaY <= -TOUCH_DRAG_MOVEMENT_PX;
 
-      const int hit = dragWordAt(touchX + dragOffsetX, touchY + dragOffsetY);
+      const bool nearStart = mode == Mode::Lookup && deltaX < LOOKUP_DRAG_X_PX && deltaX > -LOOKUP_DRAG_X_PX &&
+                             deltaY < LOOKUP_DRAG_Y_PX && deltaY > -LOOKUP_DRAG_Y_PX;
+      const int hit = nearStart ? -1 : dragWordAt(touchX + dragOffsetX, touchY + dragOffsetY);
       if (hit >= 0) {
         selectIndex(hit);
       }
@@ -660,21 +682,62 @@ int ClipSelectionActivity::selectionTop() const {
   return top;
 }
 
+const char* ClipSelectionActivity::actionLabel(const int action) const {
+  if (lookupMenu()) {
+    if (action == 2) return lookupMoreActions ? "<" : "+";
+    if (lookupMoreActions) return action == 0 ? tr(STR_CLIP) : tr(STR_BOOKMARK_OPTION);
+    return action == 0 ? tr(STR_LOOKUP) : tr(STR_ANOTHER_WORD);
+  }
+  const char* labels[] = {tr(STR_LOOKUP), tr(STR_CLIP), tr(STR_BOOKMARK_OPTION)};
+  return labels[firstAction() + action];
+}
+
+// Same look as the theme's selection actions, with the dictionary-mode labels.
+void ClipSelectionActivity::drawLookupActions() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  for (int i = 0; i < actionCount(); ++i) {
+    const Rect button = actionButton(i);
+    renderer.fillRoundedRect(button.x, button.y, button.width, button.height, metrics.controlRadius, Color::White);
+    renderer.drawRoundedRect(button.x, button.y, button.width, button.height, 1, metrics.controlRadius, true);
+    UITheme::drawCenteredWrappedText(renderer, button, uiScaleSpec().smallFontId, actionLabel(i), 2, true,
+                                     EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::CENTER);
+  }
+}
+
 // Called from loop(), which already holds the render lock (taking it again
 // would deadlock).
 void ClipSelectionActivity::flashAction(const int action) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect button = selectionGeometry::button(actionRect(), action, metrics.menuSpacing, actionCount());
-  const char* labels[] = {tr(STR_LOOKUP), tr(STR_CLIP), tr(STR_BOOKMARK_OPTION)};
+  const Rect button = actionButton(action);
   renderer.fillRoundedRect(button.x, button.y, button.width, button.height, metrics.controlRadius, Color::Black);
-  UITheme::drawCenteredWrappedText(renderer, button, SMALL_FONT_ID, labels[firstAction() + action], 2, false,
+  UITheme::drawCenteredWrappedText(renderer, button, SMALL_FONT_ID, actionLabel(action), 2, false,
                                    EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::CENTER);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
 int ClipSelectionActivity::actionAt(const int x, const int y) const {
+  if (lookupMenu()) {
+    for (int i = 0; i < actionCount(); ++i) {
+      if (selectionGeometry::contains(actionButton(i), x, y)) return i;
+    }
+    return -1;
+  }
   return selectionGeometry::actionAt(actionRect(), UITheme::getInstance().getMetrics().menuSpacing, x, y,
                                      actionCount());
+}
+
+// Button rects; in dictionary mode the third button (+ / <) is a small square.
+Rect ClipSelectionActivity::actionButton(const int action) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect rect = actionRect();
+  if (!lookupMenu()) return selectionGeometry::button(rect, action, metrics.menuSpacing, actionCount());
+  const int pad = metrics.menuSpacing;
+  const int h = rect.height - 2 * pad;
+  const int small = h / 2;  // + / < : half-size square, vertically centred
+  const int big = (rect.width - small - 4 * pad) / 2;
+  const int x = rect.x + pad + (action == 0 ? 0 : action == 1 ? big + pad : 2 * (big + pad));
+  if (action == 2) return Rect{x, rect.y + pad + (h - small) / 2, small, small};
+  return Rect{x, rect.y + pad, big, h};
 }
 
 Rect ClipSelectionActivity::actionRect() const {
@@ -689,14 +752,23 @@ Rect ClipSelectionActivity::actionRect() const {
   safe.width = rightEdge - safe.x;
   safe.height = bottomEdge - safe.y;
   const int font = uiScaleSpec().smallFontId;
-  const int labelWidth =
-      std::max({renderer.getTextWidth(font, tr(STR_LOOKUP)), renderer.getTextWidth(font, tr(STR_CLIP)),
-                renderer.getTextWidth(font, tr(STR_BOOKMARK_OPTION))});
+  int labelWidth = 0;
+  for (int i = 0; i < actionCount(); ++i)
+    labelWidth = std::max(labelWidth, renderer.getTextWidth(font, actionLabel(i)));
+  if (lookupMenu()) {  // both pages share one size
+    for (const StrId id : {StrId::STR_LOOKUP, StrId::STR_ANOTHER_WORD, StrId::STR_CLIP, StrId::STR_BOOKMARK_OPTION}) {
+      labelWidth = std::max(labelWidth, renderer.getTextWidth(font, I18N.get(id)));
+    }
+  }
   const int padding = metrics.menuSpacing;
   const int count = actionCount();
-  const int width = std::min(safe.width, count * (labelWidth + padding * 2) + padding * (count + 1));
+  // Dictionary mode: roomier buttons, easier to hit on a small screen.
+  const int buttonPad = lookupMenu() ? padding * 3 : padding * 2;
+  const int width =
+      lookupMenu() ? std::min(safe.width, 2 * (labelWidth + buttonPad) + renderer.getLineHeight(font) + padding * 5)
+                   : std::min(safe.width, count * (labelWidth + buttonPad) + padding * (count + 1));
   const int lines = labelWidth > (width - padding * (count + 1)) / count ? 2 : 1;
-  const int height = std::max(36, renderer.getLineHeight(font) * lines + padding * 2);
+  const int height = std::max(36, renderer.getLineHeight(font) * lines + padding * 2);  // same in both menus
   int first = std::min(rangeStart, selected);
   const int last = std::max(rangeStart, selected);
   while (first < last && words[first].pageOffset < currentPageOffset) ++first;
@@ -890,7 +962,13 @@ void ClipSelectionActivity::drawSelection() const {
       GUI.drawSelectionHandle(renderer, handleRect(first, true), !words[first].isRtl);
     if (words[last].pageOffset == currentPageOffset)
       GUI.drawSelectionHandle(renderer, handleRect(last, false), words[last].isRtl);
-    if (!touchDragSelecting) GUI.drawSelectionActions(renderer, actionRect(), actionCount(), firstAction());
+    if (!touchDragSelecting) {
+      if (lookupMenu()) {
+        drawLookupActions();
+      } else {
+        GUI.drawSelectionActions(renderer, actionRect(), actionCount(), firstAction());
+      }
+    }
   } else {
     const WordBox& cursor = words[selected];
     renderer.drawRect(cursor.x + offsetX, cursor.y + offset, cursor.width, cursor.height, true);

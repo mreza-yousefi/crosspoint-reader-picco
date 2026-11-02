@@ -60,6 +60,8 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 
 **This fork:** definitions open as a sheet over the lower part of the screen with the book page still visible above. Swipe left/right (or use the side buttons) to page; a tap above the sheet closes the lookup and returns to the book. After a lookup, including "not found", the reader returns to the book rather than to word selection. Tapping **Look Up**, **Clip** or **Bookmark** in the selection menu shows a pressed state first.
 
+**Lookup history (this fork):** each successful lookup appends a tab-separated line to `/vocabulary/lookups.tsv` on the SD card: `date`, `word` (as selected), `headword`, `book` (file name) and the first ~160 characters of the definition as plain text. The file opens in a spreadsheet; delete it to start a new list.
+
 When a word is found, the definition screen shows the matched headword at the top and the definition text below, with a page counter for long definitions. A word that maps to several definitions shows all of them one after another, each labelled with its headword; if they do not all fit, the ones that fit are shown. If the first definition fills the size limit, it is shown alone without an extra label.
 
 HTML dictionaries (`sametypesequence=h`) and XDXF dictionaries (`sametypesequence=x`) use the EPUB text-layout engine for supported formatting such as headings, bold, italics, lists, and line breaks. Unrecognized tags keep their text without special formatting. Images and CSS styling are ignored. Definitions that are too large or cannot be parsed or laid out within the available memory fall back to plain text.

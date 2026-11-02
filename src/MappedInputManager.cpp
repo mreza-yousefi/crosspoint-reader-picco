@@ -118,6 +118,7 @@ MappedInputManager::Button MappedInputManager::mapScreenDirection(const Button b
 
 void MappedInputManager::updateButtonChords() const {
   chordFrame = Chord::None;
+  powerDoubleClickFrame = false;
   const auto bit = [](const uint8_t index) { return static_cast<uint8_t>(1u << index); };
   if (chordMask != 0) {
     // Keep the chord's buttons hidden until all are up, their release frames included.
@@ -126,6 +127,20 @@ void MappedInputManager::updateButtonChords() const {
       if ((chordMask & bit(index)) && (gpio.isPressed(index) || gpio.wasReleased(index))) active = true;
     }
     if (!active) chordMask = 0;
+    return;
+  }
+  // Power double-click: a second press soon after a short click. Hide this
+  // press and its release.
+  if (gpio.wasReleased(HalGPIO::BTN_POWER) && !gpio.isPressed(HalGPIO::BTN_UP) &&
+      gpio.getPowerButtonHeldTime() <= SETTINGS.getPowerButtonDuration()) {
+    lastPowerClickMs = millis();  // page turn stays instant; a double-click undoes it
+  } else if (gpio.wasPressed(HalGPIO::BTN_POWER) && lastPowerClickMs != 0 &&
+             millis() - lastPowerClickMs <= POWER_DOUBLE_CLICK_MS && !gpio.isPressed(HalGPIO::BTN_UP)) {
+    lastPowerClickMs = 0;
+    chordMask = bit(HalGPIO::BTN_POWER);
+    chordFormedMs = millis();
+    powerDoubleClickFrame = true;
+    LOG_DBG("INPUT", "Power double-click");
     return;
   }
   if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) {

@@ -42,6 +42,10 @@ class ActivityManager {
   MappedInputManager& mappedInput;
   std::vector<std::unique_ptr<Activity>> stackActivities;
   std::unique_ptr<Activity> currentActivity;
+  // Book screen that started a touch-lock dictionary lookup; the lock resumes
+  // once it is in front again (or the reader was left).
+  const Activity* lookupOwner = nullptr;
+  bool lookupLeftOwner = false;
 
   void exitActivity(const RenderLock& lock);
 

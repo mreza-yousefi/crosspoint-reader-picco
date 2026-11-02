@@ -58,6 +58,8 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 
 ## The Definition Screen
 
+**This fork:** definitions open as a sheet over the lower part of the screen with the book page still visible above. Swipe left/right (or use the side buttons) to page; a tap above the sheet closes the lookup and returns to the book. After a lookup, including "not found", the reader returns to the book rather than to word selection. Tapping **Look Up**, **Clip** or **Bookmark** in the selection menu shows a pressed state first.
+
 When a word is found, the definition screen shows the matched headword at the top and the definition text below, with a page counter for long definitions. A word that maps to several definitions shows all of them one after another, each labelled with its headword; if they do not all fit, the ones that fit are shown. If the first definition fills the size limit, it is shown alone without an extra label.
 
 HTML dictionaries (`sametypesequence=h`) and XDXF dictionaries (`sametypesequence=x`) use the EPUB text-layout engine for supported formatting such as headings, bold, italics, lists, and line breaks. Unrecognized tags keep their text without special formatting. Images and CSS styling are ignored. Definitions that are too large or cannot be parsed or laid out within the available memory fall back to plain text.
@@ -85,6 +87,12 @@ Returning to a previous definition reads it from the SD card again.
 If a previous definition cannot be read or its position restored, the definition screen closes and returns to book word selection.
 The screen also closes if a failed forward lookup cannot reload the current definition.
 
+
+## Persian (and other Arabic-script) definitions
+
+Definitions are drawn in the reading font, so a Latin-only font shows `?` for Persian. Instead of switching your reading font, add the Persian glyphs to it with `scripts/merge_persian_font.py` (Latin glyphs are unchanged, so books look the same), copy the result to `/fonts/<Family>Fa/`, restart, and pick it under **Settings → Reader → Text Settings**. The script takes TTF files; for a downloaded `.cpfont` family, start from the font's original TTF release.
+
+The English-Persian **Arianpur (OpenDictionary)** StarDict works well (about 183,000 entries). Its pronunciations use `ǝ` (U+01DD) and `ŋ`, which many reading fonts lack; replacing them with `ə` (U+0259) and `ng` keeps every entry the same length, so the `.idx` stays valid.
 
 ## Where to find dictionaries
 

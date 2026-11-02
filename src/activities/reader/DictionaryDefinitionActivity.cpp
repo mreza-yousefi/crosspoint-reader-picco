@@ -19,6 +19,7 @@
 #include "ReaderUtils.h"
 #include "components/HeaderBackTapTarget.h"
 #include "components/UITheme.h"
+#include "fontIds.h"
 #include "util/DictHtmlPages.h"
 #include "util/HtmlToPlainText.h"
 
@@ -162,6 +163,12 @@ void DictionaryDefinitionActivity::onExit() {
   }
 }
 
+int DictionaryDefinitionActivity::sheetTop() const { return renderer.getScreenHeight() * 2 / 5; }
+
+int DictionaryDefinitionActivity::sheetHeaderHeight() const {
+  return renderer.getLineHeight(UI_12_FONT_ID) + 2 * UITheme::getInstance().getMetrics().verticalSpacing;
+}
+
 DictionaryDefinitionActivity::BodyArea DictionaryDefinitionActivity::bodyArea() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto orientation = renderer.getOrientation();
@@ -176,8 +183,8 @@ DictionaryDefinitionActivity::BodyArea DictionaryDefinitionActivity::bodyArea() 
   const int contentRight =
       std::max(right, orientation == GfxRenderer::Orientation::LandscapeCounterClockwise ? hintGutterWidth : 0);
   const int x = contentLeft + metrics.contentSidePadding;
-  const int y = std::max(top, isInverted ? metrics.buttonHintsHeight : 0) + metrics.topPadding + metrics.headerHeight +
-                metrics.verticalSpacing;
+  (void)isInverted;
+  const int y = sheetTop() + sheetHeaderHeight();
   const int bottomArea = std::max(bottom, metrics.buttonHintsHeight) + metrics.verticalSpacing;
   return {x, y, renderer.getScreenWidth() - contentLeft - contentRight - 2 * metrics.contentSidePadding,
           renderer.getScreenHeight() - y - bottomArea};
@@ -612,9 +619,31 @@ void DictionaryDefinitionActivity::loop() {
   auto currentPage = std::atomic_ref(content.currentPage);
   // Same tap zones as the reader page turns: left third = previous page,
   // the rest = next. Back is the usual left-edge swipe.
+  // Swipes page like the reader: left = next, right = previous.
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Right) {
+    const bool next = swipe == MappedInputManager::SwipeDir::Left;
+    LOG_DBG("DICT", "Swipe %s (page %d/%d)", next ? "next" : "prev", static_cast<int>(currentPage) + 1, totalPages);
+    if (next ? currentPage + 1 < totalPages : currentPage > 0) {
+      haptic_feedback::touchAction();
+      currentPage += next ? 1 : -1;
+      content.selection.valid = false;
+      requestUpdate();
+    }
+    return;
+  }
   int tx = 0;
   int ty = 0;
   if (mappedInput.wasScreenTapped(tx, ty)) {
+    LOG_DBG("DICT", "Tap %d,%d (sheet top %d, page %d/%d)", tx, ty, sheetTop(), static_cast<int>(currentPage) + 1,
+            totalPages);
+    if (ty < sheetTop()) {  // tap on the book above the sheet: close the lookup
+      ActivityResult result;
+      result.isCancelled = true;
+      setResult(std::move(result));
+      finish();
+      return;
+    }
     if (tx < renderer.getScreenWidth() / 3) {
       if (currentPage > 0) {
         haptic_feedback::touchAction();
@@ -680,7 +709,10 @@ void DictionaryDefinitionActivity::drawBody(const int fontId, const int x, const
 void DictionaryDefinitionActivity::render(RenderLock&&) {
   const int currentPage = std::atomic_ref(content.currentPage).load();
   const int totalPages = content.totalPages;
-  renderer.clearScreen();
+  // Sheet over the lower part; the frame above (the book page) is kept.
+  const int top = sheetTop();
+  renderer.fillRect(0, top, renderer.getScreenWidth(), renderer.getScreenHeight() - top, false);
+  renderer.fillRect(0, top, renderer.getScreenWidth(), 2, true);
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto orientation = renderer.getOrientation();
@@ -696,8 +728,17 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   if (totalPages > 1) {
     snprintf(counter, sizeof(counter), "%d/%d", currentPage + 1, totalPages);
   }
-  GUI.drawHeader(renderer, Rect{contentX, contentY + metrics.topPadding, contentWidth, metrics.headerHeight},
-                 content.headword.c_str(), counter[0] ? counter : nullptr);
+  (void)contentY;
+  {
+    const BodyArea area = bodyArea();
+    const int headerY = top + metrics.verticalSpacing;
+    renderer.drawText(UI_12_FONT_ID, area.x, headerY, content.headword.c_str(), true, EpdFontFamily::BOLD);
+    if (counter[0]) {
+      const int w = renderer.getTextWidth(UI_10_FONT_ID, counter);
+      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - metrics.contentSidePadding - w, headerY, counter,
+                        true);
+    }
+  }
 
   // Body: two-pass draw inside a prewarm scope (same pattern as the reader's
   // renderContents) so SD-card font glyphs load from SD in one batch instead

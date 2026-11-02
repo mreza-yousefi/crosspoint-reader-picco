@@ -123,7 +123,19 @@ void ActivityManager::loop() {
   }
 
   if (currentActivity) {
-    if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
+    // Resume a touch lock paused for a dictionary lookup before any gesture is
+    // read: once the book is back in front, or when the reader was left.
+    if (lookupPausesTouchLock) {
+      if (!isReaderActivity()) {
+        lookupPausesTouchLock = false;
+      } else if (currentActivity.get() != lookupOwner) {
+        lookupLeftOwner = true;
+      } else if (lookupLeftOwner) {
+        lookupPausesTouchLock = false;
+      }
+    }
+    // During such a lookup only its own screens take touch: no global gestures.
+    if (!lookupPausesTouchLock && !currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
         return;
       }
@@ -144,6 +156,24 @@ void ActivityManager::loop() {
       // The header back button shares this band; its taps stay Back.
       statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
     }
+    // Power double-click under the touch lock on a book page: dictionary lookup
+    // with touch paused for its duration (main.cpp re-locks once the reader is
+    // back in front). Unlocked, a long-press on a word already offers Look Up.
+    // The first click already turned a page: reset it before the lookup opens,
+    // so word selection shows the original page (no visible flip back).
+    if (mappedInput.wasPowerDoubleClick() && slideSwitchTouchLockEngaged() && currentActivity->acceptsRemoteInput()) {
+      const bool undone =
+          currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS + mappedInput.msSinceChordFormed());
+      if (currentActivity->startDictionaryLookup()) {
+        // Word selection paints the (restored) page itself: skip the reader's
+        // own repaint of it, which would show as a flip back first.
+        if (undone) requestedUpdate.store(false);
+        lookupPausesTouchLock = true;
+        lookupOwner = currentActivity.get();
+        lookupLeftOwner = false;
+      }
+      return;
+    }
     if (mappedInput.wasSideButtonChord() || mappedInput.wasPowerUpChord()) {
       // The window counts to when the chord formed, not to now: a Power+Up
       // refresh runs first and takes ~0.5 s.
@@ -152,7 +182,7 @@ void ActivityManager::loop() {
     // Under the touch lock the swipe is ignored, so Up+Down together opens it
     // instead; the open panel pauses the lock (see lightPanelPausesTouchLock).
     const bool sideChord = mappedInput.wasSideButtonChord() && slideSwitchLocksTouch();
-    if (mappedInput.hasTouch() && currentActivity->name != "FrontlightPanel" &&
+    if (!lookupPausesTouchLock && mappedInput.hasTouch() && currentActivity->name != "FrontlightPanel" &&
         (statusBarTap || sideChord || mappedInput.wasLightPanelGesture())) {
       haptic_feedback::touchAction();
       pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));

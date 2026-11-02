@@ -55,6 +55,8 @@ class Activity {
   // Revert a button page turn made within windowMs: the first button of a
   // not-quite-simultaneous chord already turned a page. Returns true if undone.
   virtual bool undoRecentButtonPageTurn(unsigned long /*windowMs*/) { return false; }
+  // Start a dictionary word selection (reader only). Returns true if started.
+  virtual bool startDictionaryLookup() { return false; }
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }

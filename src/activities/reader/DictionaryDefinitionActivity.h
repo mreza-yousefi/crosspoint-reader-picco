@@ -53,6 +53,10 @@ class DictionaryDefinitionActivity final : public Activity {
   };
 
   BodyArea bodyArea() const;
+  // Kindle-style sheet: definitions use the lower part of the screen and the
+  // book stays visible above; a tap above the sheet closes the lookup.
+  int sheetTop() const;
+  int sheetHeaderHeight() const;
 
   struct Definition {
     std::string headword;

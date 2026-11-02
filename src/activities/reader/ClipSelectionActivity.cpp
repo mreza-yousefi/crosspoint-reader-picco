@@ -20,6 +20,7 @@
 #include "clippings/SelectionGeometry.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
+#include "fontIds.h"
 #include "util/DictionaryRegistry.h"
 #include "util/WordSelectionInput.h"
 
@@ -489,6 +490,7 @@ void ClipSelectionActivity::loop() {
     if (rangeStart >= 0) {
       const int action = actionAt(touchX, touchY);
       if (action >= 0) {
+        flashAction(action);  // visible "pressed" state before the action runs
         confirmSelection(SELECTION_ACTIONS[firstAction() + action]);
         return;
       }
@@ -656,6 +658,17 @@ int ClipSelectionActivity::selectionTop() const {
     if (words[i].pageOffset == currentPageOffset) top = std::min(top, static_cast<int>(words[i].y));
   }
   return top;
+}
+
+void ClipSelectionActivity::flashAction(const int action) {
+  RenderLock lock(*this);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect button = selectionGeometry::button(actionRect(), action, metrics.menuSpacing, actionCount());
+  const char* labels[] = {tr(STR_LOOKUP), tr(STR_CLIP), tr(STR_BOOKMARK_OPTION)};
+  renderer.fillRoundedRect(button.x, button.y, button.width, button.height, metrics.controlRadius, Color::Black);
+  UITheme::drawCenteredWrappedText(renderer, button, SMALL_FONT_ID, labels[firstAction() + action], 2, false,
+                                   EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::CENTER);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
 int ClipSelectionActivity::actionAt(const int x, const int y) const {
@@ -906,6 +919,13 @@ void ClipSelectionActivity::render(RenderLock&&) {
   pageAt(currentPageOffset).render(renderer, fontId, marginLeft + offsetX, marginTop + offset);
   if (wordCount != 0) drawSelection();
   renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
+  if (isLookup()) {
+    // Say why the page looks different (also after a Power double-click).
+    const int h = renderer.getLineHeight(SMALL_FONT_ID) + 6;
+    renderer.fillRect(0, safe.y, renderer.getScreenWidth(), h, false);
+    renderer.drawCenteredText(SMALL_FONT_ID, safe.y + 3, tr(STR_DICT_MODE_HINT), true, EpdFontFamily::BOLD);
+    renderer.fillRect(0, safe.y + h - 1, renderer.getScreenWidth(), 1, true);
+  }
 
   const auto labels = mappedInput.mapLabels(
       tr(STR_BACK), rangeStart < 0 ? tr(STR_SELECT) : (isLookup() ? tr(STR_LOOKUP) : tr(STR_DONE)), tr(STR_DIR_LEFT),

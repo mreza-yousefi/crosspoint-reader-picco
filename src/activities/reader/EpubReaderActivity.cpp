@@ -453,6 +453,15 @@ void EpubReaderActivity::openDictionaryWordSelect() {
   startClipSelection(-1, -1, ClipSelectionActivity::Mode::Lookup);
 }
 
+bool EpubReaderActivity::startDictionaryLookup() {
+  if (SETTINGS.dictionaryName[0] == '\0' || !section) {
+    openDictionaryWordSelect();  // shows the "no dictionary" message
+    return false;
+  }
+  openDictionaryWordSelect();
+  return true;
+}
+
 void EpubReaderActivity::startClipSelection(const int initialX, const int initialY,
                                             const ClipSelectionActivity::Mode mode) {
   if (!section || !epub || section->currentPage < 0 || section->currentPage >= section->pageCount) return;
@@ -551,9 +560,9 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
         requestUpdate();
         return;
       }
-      startActivityForResult(std::move(lookup), [this](const ActivityResult& result) {
-        if (!result.isCancelled) openDictionaryWordSelect();
-      });
+      // Back to the book after a lookup (also when the word was not found),
+      // not into another word selection: under the touch lock this re-locks.
+      startActivityForResult(std::move(lookup), [this](const ActivityResult&) { requestUpdate(); });
       return;
     }
     const uint16_t paragraphIndex =

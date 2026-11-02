@@ -71,6 +71,7 @@ class ClipSelectionActivity final : public Activity {
   int firstAction() const { return lookupAvailable ? 0 : 1; }
   int actionCount() const { return mode == Mode::DefinitionLookup ? 1 : 3 - firstAction(); }
   int actionAt(int x, int y) const;
+  void flashAction(int action);
   int closestInRow(uint16_t row, int centerX) const;
   int wordAt(int x, int y) const;
   int dragWordAt(int x, int y) const;

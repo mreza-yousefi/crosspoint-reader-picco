@@ -502,6 +502,8 @@ static bool holdSleepWhileUsbPowered() {
 
 #if FREEINK_DEVICE_PICCO
 static bool wakeLightPanelPending = false;
+constexpr unsigned long WAKE_PANEL_SETTLE_MS = 400;     // let the first page reach the panel
+constexpr unsigned long WAKE_PANEL_GIVE_UP_MS = 15000;  // since boot
 #endif
 
 // Enter deep sleep mode
@@ -939,10 +941,21 @@ void loop() {
 #if FREEINK_DEVICE_PICCO
   // Decided once, when the wake screen is up: only a book under the touch lock.
   // The open panel pauses the lock; tapping below it closes it and re-locks.
+  // Waits for the book's first page so the sheet opens over it, not over a
+  // blank frame; gives up after a few seconds (a slow book just skips it).
   if (wakeLightPanelPending && (activityManager.isReaderActivity() || activityManager.isForegroundHomeShown())) {
-    wakeLightPanelPending = false;
-    if (activityManager.isReaderActivity() && slideSwitchTouchLockEngaged() && Frontlight.present()) {
-      activityManager.pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager));
+    static unsigned long pageReadyAt = 0;
+    const bool locked = activityManager.isReaderActivity() && slideSwitchTouchLockEngaged() && Frontlight.present();
+    const bool pageShown = activityManager.getScreenshotInfo().totalPages > 0 && !RenderLock::peek();
+    if (!locked || millis() > WAKE_PANEL_GIVE_UP_MS) {
+      wakeLightPanelPending = false;
+    } else if (pageShown && pageReadyAt == 0) {
+      pageReadyAt = millis();
+    } else if (pageShown && millis() - pageReadyAt >= WAKE_PANEL_SETTLE_MS) {
+      wakeLightPanelPending = false;
+      auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager);
+      panel->setNotice(tr(STR_LIGHT_CHECK));
+      activityManager.pushActivity(std::move(panel));
     }
   }
 #endif

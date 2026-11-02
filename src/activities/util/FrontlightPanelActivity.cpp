@@ -292,6 +292,7 @@ int FrontlightPanelActivity::computePanelBottom() const {
   // Slim battery band + the air around it (mirrors buildPanelScreen).
   const int y0 = std::max<int>(metrics.batteryHeight, lineHeight);
   int y = tokens.spaceMd + y0 + tokens.spaceMd;
+  if (notice) y += lineHeight + tokens.spaceSm;  // the notice line (buildPanelScreen)
   if (Frontlight.present()) {
     // Screen::sliderRow reserves caption + spaceMd + control band, then a
     // spaceMd gap; addSliderRow() adds one more spaceMd of air after each row.
@@ -376,6 +377,10 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
     UITheme::getInstance().getTheme().BaseTheme::drawHeader(
         renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.homeTopPadding - metrics.topPadding},
         nullptr);
+  }
+  if (notice) {
+    const auto rect = screen.takeTop(screen.target().lineHeight(theme.smallText.font), theme.spaceSm);
+    screen.target().text(rect, notice, theme.smallText);
   }
 
   if (Frontlight.present()) {

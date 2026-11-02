@@ -33,6 +33,7 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // rather than the Tap default. Seeded from the setting in onEnter().
   uint8_t touchModeRestore = CrossPointSettings::TOUCH_READER_ON;
   int panelBottom = 0;
+  const char* notice = nullptr;
 
   // Quick settings, left to right: night mode, refresh, orientation, touch, Bluetooth.
   static constexpr int kTileCount = 5;
@@ -72,6 +73,9 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
 
  public:
   explicit FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  // One line under the battery band explaining why the panel opened on its own
+  // (e.g. the wake light check). Must outlive the panel; nullptr = none.
+  void setNotice(const char* text) { notice = text; }
   void onEnter() override;
   void onExit() override;
   void loop() override;

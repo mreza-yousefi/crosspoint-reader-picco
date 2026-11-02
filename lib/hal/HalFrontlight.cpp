@@ -31,7 +31,8 @@ void HalFrontlight::setWarmth(const uint8_t warmPercent) {
 }
 
 void HalFrontlight::setOn(const bool on) {
-  if (on == lit) return;
+  // Always write: after a wake the cached state can disagree with the LED
+  // driver, and an early return made the panel's lamp button a no-op.
   lit = on;
   manager.setBrightness(lit ? lastBrightness : 0);
 }

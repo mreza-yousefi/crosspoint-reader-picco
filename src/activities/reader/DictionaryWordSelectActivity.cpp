@@ -63,6 +63,12 @@ void DictionaryWordSelectActivity::performLookup() {
     {
       RenderLock lock;
       popup = Popup::None;
+    }
+    // The definition sheet keeps the frame above it: repaint the page without
+    // the "Looking up..." popup first.
+    requestUpdateAndWait();
+    {
+      RenderLock lock;
       page.reset();
     }
     auto activity = makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, std::move(headword),

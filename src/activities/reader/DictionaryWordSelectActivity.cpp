@@ -83,12 +83,19 @@ void DictionaryWordSelectActivity::performLookup() {
   // One paint: the clean page the definition sheet will sit on. Only a first-use
   // index build (seconds) gets a busy popup, cleared again before the sheet.
   const bool showedBusy = dictNeedsIndex;
-  if (showedBusy) {
+  {
     RenderLock lock;
-    popupMsg = StrId::STR_DICT_INDEXING;
-    popup = Popup::Busy;
+    if (showedBusy) {
+      popupMsg = StrId::STR_DICT_INDEXING;
+      popup = Popup::Busy;
+    }
+    paintOnly = !showedBusy;  // a busy popup must be shown; a clean page need not be
   }
   requestUpdateAndWait();
+  {
+    RenderLock lock;
+    paintOnly = false;
+  }
 
   bool ok = dictOpenOk;
   Dictionary::IndexResult indexResult = Dictionary::IndexResult::Ok;
@@ -203,5 +210,5 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     GUI.drawPopup(renderer, I18N.get(popupMsg));
     return;
   }
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  if (!paintOnly) renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

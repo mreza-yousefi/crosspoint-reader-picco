@@ -504,7 +504,7 @@ void ClipSelectionActivity::loop() {
     if (rangeStart >= 0) {
       const int action = actionAt(touchX, touchY);
       if (action >= 0) {
-        flashAction(action);  // visible "pressed" state before the action runs
+        flashAction(action);  // pressed state (Look Up reads "Looking up...") before the action runs
         if (lookupMenu()) {
           if (action == 2) {  // + / <: switch between the two menu pages
             lookupMoreActions = !lookupMoreActions;
@@ -720,7 +720,11 @@ void ClipSelectionActivity::flashAction(const int action) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect button = actionButton(action);
   renderer.fillRoundedRect(button.x, button.y, button.width, button.height, metrics.controlRadius, Color::Black);
-  UITheme::drawCenteredWrappedText(renderer, button, SMALL_FONT_ID, actionLabel(action), 2, false,
+  // Look Up says what happens next, inside the same refresh (no extra paint).
+  const bool lookingUp =
+      (lookupMenu() && !lookupMoreActions && action == 0) || (!lookupMenu() && firstAction() + action == 0);
+  UITheme::drawCenteredWrappedText(renderer, button, SMALL_FONT_ID,
+                                   lookingUp ? tr(STR_DICT_LOOKING_UP) : actionLabel(action), 2, false,
                                    EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::CENTER);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

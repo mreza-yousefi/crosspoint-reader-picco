@@ -40,6 +40,9 @@ class DictionaryWordSelectActivity final : public Activity {
 
   std::string lookupText;
   bool lookupPending = false;
+  // Paint the page into the frame buffer without a panel refresh: the definition
+  // sheet draws over it and shows both in one refresh.
+  bool paintOnly = false;
   Dictionary dict;
   bool dictOpenAttempted = false;
   bool dictOpenOk = false;

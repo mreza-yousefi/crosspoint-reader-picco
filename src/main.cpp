@@ -222,7 +222,9 @@ void toggleFrontlight() {
 
 // Applies the slide switch's position to the bound function at boot, on each
 // change, and when its binding changes; the physical position stays the source
-// of truth, as on stock.
+// of truth, as on stock. Touch controls are the exception: there each move
+// toggles the lock, and boot (also every wake from deep sleep) only records
+// the position, so the lock survives sleep and moves made while asleep.
 void handleSlideSwitch() {
   static int appliedAction = -1;
   static int appliedOn = -1;
@@ -231,6 +233,7 @@ void handleSlideSwitch() {
   // clear the edge before this runs.
   const bool on = gpio.isToggleSwitchOn();
   if (appliedAction == SETTINGS.slideSwitchAction && appliedOn == static_cast<int>(on)) return;
+  const bool moved = appliedAction == SETTINGS.slideSwitchAction;  // not boot or a new binding
   appliedAction = SETTINGS.slideSwitchAction;
   appliedOn = on;
   switch (SETTINGS.slideSwitchAction) {
@@ -239,9 +242,12 @@ void handleSlideSwitch() {
       SETTINGS.screenInverted = on ? 1 : 0;
       break;
     case CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS:
-      // Inverted: the switch's on (red) position is the touch lock.
-      if ((SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) == !on) return;
-      SETTINGS.touchReaderControls = on ? CrossPointSettings::TOUCH_READER_OFF : CrossPointSettings::TOUCH_READER_ON;
+      if (!moved) return;
+      if (touchLockOverride) {  // unlocked from Home: the move locks again
+        touchLockOverride = false;
+        break;
+      }
+      toggleTouchLock();
       break;
     default:
       // Also compare the saved state: setup() lit the light from the switch

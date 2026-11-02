@@ -301,8 +301,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            [](const SettingInfo& s) { return s.nameId == StrId::STR_RESTORE_LIGHT_ON_WAKE; }),
             v.end());
   }
-  // The slide switch's position owns its bound function (the light at boot
-  // too). UI-only, so the keys stay persisted for other devices.
+  // The slide switch owns its bound function (the light at boot too; touch
+  // controls via the switch and the panel's touch tile). UI-only, so the keys
+  // stay persisted for other devices.
   v.erase(std::remove_if(v.begin(), v.end(),
                          [](const SettingInfo& s) {
                            return (s.nameId == StrId::STR_RESTORE_LIGHT_ON_WAKE && slideSwitchOwnsLight()) ||

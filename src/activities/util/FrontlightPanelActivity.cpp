@@ -86,12 +86,6 @@ void FrontlightPanelActivity::onEnter() {
   Frontlight.setOn(lightOn);
   lightOnChanged = false;
 
-  // Seed the touch tile's restore mode from the live setting, so toggling off
-  // and back on within this session returns to the mode the user had.
-  if (SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) {
-    touchModeRestore = SETTINGS.touchReaderControls;
-  }
-
   resetUi();
   app.on(ACTION_BRIGHTNESS, &FrontlightPanelActivity::onBrightnessEvent, this);
   app.on(ACTION_WARMTH, &FrontlightPanelActivity::onWarmthEvent, this);
@@ -195,15 +189,15 @@ void FrontlightPanelActivity::runTile(const int idx) {
       // Toggles the existing Settings -> Controls option, nothing lower-level:
       // that setting only governs the reader's tap/swipe handling, so the
       // panel's own gestures (including the swipe that reopens it) keep
-      // working while it is off. Off remembers the mode (Tap/Swipe/Inverted
-      // Tap) so toggling back does not stomp the user's choice.
-      if (SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) {
-        touchModeRestore = SETTINGS.touchReaderControls;
-        SETTINGS.touchReaderControls = CrossPointSettings::TOUCH_READER_OFF;
-      } else {
-        SETTINGS.touchReaderControls = touchModeRestore;
+      // working while it is off.
+      toggleTouchLock();
+      // Bound to the switch, the tile is the touch lock: locking closes the
+      // panel too, so the lock is on at once.
+      if (slideSwitchTouchLockEngaged()) {
+        touchLockOverride = false;
+        close();
+        break;
       }
-      SETTINGS.saveToFile();
       requestUpdate();
       break;
     case 4:  // Home: change books without leaving the touch lock
@@ -453,9 +447,9 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
                                        static_cast<int16_t>(iconRect.y + line.y), line.width, line.height},
                              ink);
       }
-      // A tile whose function the slide switch owns shows its state but takes no tap.
-      const bool switchOwned = (id == 0 && slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE)) ||
-                               (id == 3 && slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS));
+      // A tile whose function the slide switch owns shows its state but takes no
+      // tap. Not the touch tile: the switch only toggles the touch lock.
+      const bool switchOwned = id == 0 && slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE);
       if (!switchOwned) screen.frame().hit(slot, ACTION_TILE, static_cast<int16_t>(id), fui::InputTouch);
     }
   }

@@ -6,6 +6,7 @@
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <I18n.h>
+#include <Logging.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -68,6 +69,11 @@ void FrontlightPanelActivity::onEnter() {
   brightness = std::max(MIN_BRIGHTNESS, Frontlight.brightness());
   warmth = Frontlight.warmth();
   lightOn = Frontlight.isOn();
+  LOG_DBG("LIGHT", "Panel open: light %s, %u%%", lightOn ? "on" : "off", static_cast<unsigned>(brightness));
+  // Re-apply the cached state: a write that failed at wake (shared I2C bus
+  // still settling) leaves "on" cached with the LED dark, and the lamp button
+  // would then first switch it "off". setOn() always writes.
+  Frontlight.setOn(lightOn);
   lightOnChanged = false;
 
   // Seed the touch tile's restore mode from the live setting, so toggling off
@@ -225,6 +231,7 @@ void FrontlightPanelActivity::adjustWarmth(const int delta) {
 }
 
 void FrontlightPanelActivity::toggleLight() {
+  LOG_DBG("LIGHT", "Panel lamp: %s -> %s", lightOn ? "on" : "off", lightOn ? "off" : "on");
   lightOn = !lightOn;
   lightOnChanged = true;
   Frontlight.setOn(lightOn);

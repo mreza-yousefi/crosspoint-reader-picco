@@ -58,7 +58,7 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 
 ## The Definition Screen
 
-**This fork:** definitions open as a sheet over the lower part of the screen with the book page still visible above. Swipe left/right (or use the side buttons) to page; a tap above the sheet closes the lookup and returns to the book. After a lookup, including "not found", the reader returns to the book rather than to word selection. Tapping **Look Up**, **Clip** or **Bookmark** in the selection menu shows a pressed state first.
+**This fork:** definitions open as a sheet over the lower part of the screen with the book page still visible above. Swipe left/right (or use the side buttons) to page; a tap above the sheet closes the lookup and returns to the book. After a lookup, including "not found", the reader returns to the book rather than to word selection. Tapping **Look Up**, **Clip** or **Bookmark** in the selection menu shows a pressed state first (Look Up reads "Looking Up..."). The sheet appears with a clean refresh, so the pressed button leaves no trace. The light panel can be pulled down over the sheet; tap the sheet below it to close it, and the page above the sheet comes back. (Not during a lookup started under the touch lock.)
 
 **Lookup history (this fork):** each successful lookup appends a tab-separated line to `/vocabulary/lookups.tsv` on the SD card: `date`, `word` (as selected), `headword`, `book` (file name) and the first ~160 characters of the definition as plain text. The file opens in a spreadsheet; delete it to start a new list.
 

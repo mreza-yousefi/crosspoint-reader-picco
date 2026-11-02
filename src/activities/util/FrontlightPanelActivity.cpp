@@ -1,6 +1,5 @@
 #include "FrontlightPanelActivity.h"
 
-#include <BlePageTurner.h>
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
 #include <HalFrontlight.h>
@@ -10,6 +9,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iterator>
 
 #include "CrossPointSettings.h"
@@ -58,6 +59,15 @@ uint8_t percentFromPermille(const int16_t permille) {
 
 FrontlightPanelActivity::FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : Activity("FrontlightPanel", renderer, mappedInput), UiAppHost(renderer) {}
+
+FrontlightPanelActivity::~FrontlightPanelActivity() { free(coveredFrame); }
+
+// 48 KB, held only while the panel is open (PSRAM on the Picco). Without it
+// the panel's image stays above the sheet after closing.
+void FrontlightPanelActivity::keepCoveredFrame() {
+  coveredFrame = static_cast<uint8_t*>(malloc(renderer.getBufferSize()));
+  if (coveredFrame) memcpy(coveredFrame, renderer.getFrameBuffer(), renderer.getBufferSize());
+}
 
 void FrontlightPanelActivity::onEnter() {
   Activity::onEnter();
@@ -110,8 +120,14 @@ void FrontlightPanelActivity::persistLightSettings() {
   }
 }
 
+// Runs under the render lock (ActivityManager::exitActivity).
 void FrontlightPanelActivity::onExit() {
   lightPanelPausesTouchLock = false;
+  if (coveredFrame) {
+    memcpy(renderer.getFrameBuffer(), coveredFrame, renderer.getBufferSize());
+    free(coveredFrame);
+    coveredFrame = nullptr;
+  }
   persistLightSettings();
   Activity::onExit();
 }
@@ -190,13 +206,8 @@ void FrontlightPanelActivity::runTile(const int idx) {
       SETTINGS.saveToFile();
       requestUpdate();
       break;
-    case 4:  // Bluetooth page turner
-      if (!bleturner::status().compiledIn) break;
-      SETTINGS.ble.enabled = SETTINGS.ble.enabled ? 0 : 1;
-      // The panel suspends the radio; tick() reconnects in an eligible screen.
-      if (!SETTINGS.ble.enabled) bleturner::switchOff();
-      SETTINGS.saveToFile();
-      requestUpdate();
+    case 4:  // Home: change books without leaving the touch lock
+      onGoHome();
       break;
     default:
       break;
@@ -406,23 +417,21 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
 
   // Match the reader toolbar's equal icon slots; the full slot is the touch target.
   if (mappedInput.hasTouch()) {
-    const int tileCount = bleturner::status().compiledIn ? kTileCount : kTileCount - 1;
-    const fui::BitmapRef icons[kTileCount] = {
-        fui::bitmapFromIcon(icon_moon_32), fui::bitmapFromIcon(icon_refresh_cw_32),
-        fui::bitmapFromIcon(icon_reader_text_24), fui::bitmapFromIcon(icon_pointer_32),
-        fui::bitmapFromIcon(SETTINGS.ble.enabled ? icon_bluetooth_32 : icon_bluetooth_off_32)};
+    const fui::BitmapRef icons[kTileCount] = {fui::bitmapFromIcon(icon_moon_32),
+                                              fui::bitmapFromIcon(icon_refresh_cw_32),
+                                              fui::bitmapFromIcon(icon_reader_text_24),
+                                              fui::bitmapFromIcon(icon_pointer_32), fui::bitmapFromIcon(icon_home_32)};
     const bool enabled[kTileCount] = {SETTINGS.screenInverted != 0, false, false,
-                                      SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF,
-                                      SETTINGS.ble.enabled != 0};
+                                      SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF, false};
     static constexpr fui::Rotation rotations[] = {fui::Rotation::None, fui::Rotation::CW90, fui::Rotation::R180,
                                                   fui::Rotation::CCW90};
     // The underline rotates around the same 32px square as the toolbar's T.
     static constexpr fui::Rect underlines[] = {{4, 29, 24, 3}, {0, 4, 3, 24}, {4, 0, 24, 3}, {29, 4, 3, 24}};
     const fui::Rect row = screen.takeTop(kQuickControlSize);
     const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-    for (int id = 0; id < tileCount; ++id) {
-      const int16_t left = static_cast<int16_t>(row.x + row.width * id / tileCount);
-      const int16_t right = static_cast<int16_t>(row.x + row.width * (id + 1) / tileCount);
+    for (int id = 0; id < kTileCount; ++id) {
+      const int16_t left = static_cast<int16_t>(row.x + row.width * id / kTileCount);
+      const int16_t right = static_cast<int16_t>(row.x + row.width * (id + 1) / kTileCount);
       const fui::Rect slot{left, row.y, static_cast<int16_t>(right - left), row.height};
       const fui::Rect control{static_cast<int16_t>(slot.x + (slot.width - kQuickControlSize) / 2), row.y,
                               kQuickControlSize, kQuickControlSize};

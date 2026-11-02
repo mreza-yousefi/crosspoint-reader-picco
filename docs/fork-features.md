@@ -11,6 +11,7 @@ Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
 | Lock indicator | Padlock centred in the top bar and in the top-right page corner; open while overridden |
 | Light panel under the lock | Up + Down together (touch works inside the panel) |
 | Refresh under the lock | Power + Up together |
+| Change book under the lock | Up + Down, then the house icon in the light panel goes to Home; pick a book with the buttons |
 | Dictionary under the lock | Hold Up 0.2 s on a book page; Down backs out; short Up turns back on release |
 | Unlock from Home | Hold Up 0.2 s on Home; ends on opening a book, holding Down, sleep, 2 min idle |
 | Wake status | Waking into a book: light panel with "Touch locked · light check"; waking to Home: "Touch locked" note |
@@ -22,10 +23,14 @@ Details: [docs/dictionary.md](dictionary.md).
 - Kindle-style definition sheet over the lower 60% of the screen; swipe or side buttons page, tap above closes.
 - Dictionary-mode menu: Look Up / Another word / + (then Clip / Bookmark / <).
 - Less sensitive word selection in dictionary mode; returns to the book after a lookup.
+- Same large buttons in every selection menu; Look Up turns black with "Looking Up..." while it works.
+- One clean refresh when the definition sheet appears, and one when "Not Found" closes.
+- The light panel can open over the definition sheet; closing it puts back the page above the sheet.
 - Lookup history in `/vocabulary/lookups.tsv`.
 - Persian definitions: add Persian glyphs to your reading font with `scripts/merge_persian_font.py`.
 
 ## Light
+- Light panel quick controls: night mode, refresh, orientation, touch, Home (replaces the Bluetooth tile; Bluetooth stays in Settings).
 - Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`, upstream report Free-Ink/freeink-sdk#167).
 - Brightness/warmth greyed out while the light is off; lamp button reliably turns it on.
 

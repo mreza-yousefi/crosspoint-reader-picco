@@ -133,6 +133,8 @@ void DictionaryWordSelectActivity::performLookup() {
       requestUpdate();
       return;
     }
+    // The sheet's one refresh also clears the pressed button's ghost (~+0.08 s).
+    renderer.promoteNextRefresh(HalDisplay::HALF_REFRESH);
     startActivityForResult(std::move(activity), [this](const ActivityResult& result) {
       setResult(ActivityResult{result});
       finish();
@@ -192,6 +194,9 @@ void DictionaryWordSelectActivity::loop() {
   if (popup == Popup::NotFound || popup == Popup::Error) {
     if (millis() - popupTime >= POPUP_DURATION_MS) {
       result.isCancelled = popup == Popup::Error;
+      // The pressed button and the dark popup leave ghosting: let the
+      // book's next paint be a clean (HALF) refresh.
+      renderer.promoteNextRefresh(HalDisplay::HALF_REFRESH);
       finish();
     }
   }

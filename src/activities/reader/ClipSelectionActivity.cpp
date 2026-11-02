@@ -769,15 +769,14 @@ Rect ClipSelectionActivity::actionRect() const {
   int labelWidth = 0;
   for (int i = 0; i < actionCount(); ++i)
     labelWidth = std::max(labelWidth, renderer.getTextWidth(font, actionLabel(i)));
-  if (lookupMenu()) {  // both pages share one size
-    for (const StrId id : {StrId::STR_LOOKUP, StrId::STR_ANOTHER_WORD, StrId::STR_CLIP, StrId::STR_BOOKMARK_OPTION}) {
-      labelWidth = std::max(labelWidth, renderer.getTextWidth(font, I18N.get(id)));
-    }
+  // Every menu shares one button size (the lock-mode lookup pages').
+  for (const StrId id : {StrId::STR_LOOKUP, StrId::STR_ANOTHER_WORD, StrId::STR_CLIP, StrId::STR_BOOKMARK_OPTION}) {
+    labelWidth = std::max(labelWidth, renderer.getTextWidth(font, I18N.get(id)));
   }
   const int padding = metrics.menuSpacing;
   const int count = actionCount();
-  // Dictionary mode: roomier buttons, easier to hit on a small screen.
-  const int buttonPad = lookupMenu() ? padding * 3 : padding * 2;
+  // Roomy buttons, easier to hit on a small screen.
+  const int buttonPad = padding * 3;
   const int width =
       lookupMenu() ? std::min(safe.width, 2 * (labelWidth + buttonPad) + renderer.getLineHeight(font) + padding * 5)
                    : std::min(safe.width, count * (labelWidth + buttonPad) + padding * (count + 1));

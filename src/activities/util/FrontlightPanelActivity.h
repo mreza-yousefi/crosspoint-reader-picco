@@ -9,7 +9,7 @@
 // or a button bound to "Control Center" (iOS Control Center style): a grabber,
 // the frontlight brightness/warmth sliders (on boards with a light), and a row
 // of quick-setting icons — night mode, ghost-cleanup refresh, reading
-// orientation, reader touch controls, and Bluetooth. Enabled toggles have filled
+// orientation, reader touch controls, and Home. Enabled toggles have filled
 // rounded squares; all other controls are outlined. The grabber sits
 // along the panel's bottom edge, the edge the sheet is dragged from.
 class FrontlightPanelActivity final : public Activity, private UiAppHost {
@@ -35,7 +35,7 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   int panelBottom = 0;
   const char* notice = nullptr;
 
-  // Quick settings, left to right: night mode, refresh, orientation, touch, Bluetooth.
+  // Quick settings, left to right: night mode, refresh, orientation, touch, Home.
   static constexpr int kTileCount = 5;
 
   // SliderRowProps embeds a StyleSet, so keep it off the render stack.
@@ -70,12 +70,18 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // not use this — it closes the panel and promotes the repaint underneath
   // instead (GfxRenderer::promoteNextRefresh).
   bool cleanRefreshPending = false;
+  // Copy of the frame under the panel, put back on exit for screens that do
+  // not repaint all of it (the definition sheet). nullptr = not kept.
+  uint8_t* coveredFrame = nullptr;
 
  public:
   explicit FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
   // One line under the battery band explaining why the panel opened on its own
   // (e.g. the wake light check). Must outlive the panel; nullptr = none.
   void setNotice(const char* text) { notice = text; }
+  ~FrontlightPanelActivity() override;
+  // Copies the current frame to put back on exit. Caller holds the render lock.
+  void keepCoveredFrame();
   void onEnter() override;
   void onExit() override;
   void loop() override;

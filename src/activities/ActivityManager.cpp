@@ -209,7 +209,13 @@ void ActivityManager::loop() {
     if (!lookupPausesTouchLock && mappedInput.hasTouch() && currentActivity->name != "FrontlightPanel" &&
         (statusBarTap || sideChord || mappedInput.wasLightPanelGesture())) {
       haptic_feedback::touchAction();
-      pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
+      auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInput);
+      // The definition sheet repaints only itself, not the page above it.
+      if (currentActivity->name == "DictionaryDefinition") {
+        RenderLock lock;  // copy before the panel can render into the frame
+        panel->keepCoveredFrame();
+      }
+      pushActivity(std::move(panel));
       return;
     }
 

@@ -484,7 +484,11 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     const auto& m = UITheme::getInstance().getMetrics();
     const int x = (renderer.getScreenWidth() - 9) / 2;
     const int y = rect.y + std::max(0, (static_cast<int>(m.batteryBarHeight) - 12) / 2);
-    renderer.drawRect(x + 2, y, 5, 6, true);  // shackle
+    if (touchLockOverride) {
+      renderer.drawRect(x + 5, y - 2, 5, 6, true);  // shackle swung open: overridden
+    } else {
+      renderer.drawRect(x + 2, y, 5, 6, true);  // shackle
+    }
     renderer.fillRect(x, y + 5, 9, 7, true);  // body
   }
 }

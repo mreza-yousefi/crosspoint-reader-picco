@@ -121,6 +121,11 @@ void MappedInputManager::updateButtonChords() const {
   upHoldFrame = false;
   hideUpPressFrame = false;
   replayUpPressFrame = false;
+  downHoldFrame = false;
+  hideDownPressFrame = false;
+  replayDownPressFrame = false;
+  if (downPressedAt != 0 && gpio.wasReleased(HalGPIO::BTN_DOWN)) replayDownPressFrame = true;
+  if (!gpio.isPressed(HalGPIO::BTN_DOWN)) downPressedAt = 0;
   const auto bit = [](const uint8_t index) { return static_cast<uint8_t>(1u << index); };
   // Under the lock a short Up click acts on release: its press edge is held back
   // and replayed when the finger lifts, so a hold can open the dictionary with
@@ -155,6 +160,25 @@ void MappedInputManager::updateButtonChords() const {
   } else {
     upPressedAt = 0;
   }
+  // Down held alone while the lock is overridden: lock again. Its press is held
+  // back the same way, so a short Down still acts (on release).
+  const bool downAlone = !gpio.isPressed(HalGPIO::BTN_UP) && !gpio.isPressed(HalGPIO::BTN_POWER);
+  if (slideSwitchTouchLockEngaged() && touchLockOverride && downAlone) {
+    if (gpio.wasPressed(HalGPIO::BTN_DOWN)) {
+      downPressedAt = millis();
+      hideDownPressFrame = true;
+    }
+    if (downPressedAt != 0 && gpio.isPressed(HalGPIO::BTN_DOWN) && millis() - downPressedAt >= UP_HOLD_LOOKUP_MS) {
+      downPressedAt = 0;
+      chordMask = bit(HalGPIO::BTN_DOWN);
+      chordFormedMs = millis();
+      downHoldFrame = true;
+      LOG_DBG("INPUT", "Down hold");
+      return;
+    }
+  } else {
+    downPressedAt = 0;
+  }
   if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
     chordMask = bit(HalGPIO::BTN_UP) | bit(HalGPIO::BTN_DOWN);
     chordFrame = Chord::UpDown;
@@ -171,6 +195,10 @@ void MappedInputManager::updateButtonChords() const {
 bool MappedInputManager::readRaw(bool (HalGPIO::*fn)(uint8_t) const, const uint8_t index) const {
   // A chord's buttons never also turn a page or fire their own actions.
   if (chordMask & (1u << index)) return false;
+  if (index == HalGPIO::BTN_DOWN && fn == &HalGPIO::wasPressed) {
+    if (hideDownPressFrame) return false;
+    if (replayDownPressFrame) return true;
+  }
   if (index == HalGPIO::BTN_UP && fn == &HalGPIO::wasPressed) {
     if (hideUpPressFrame) return false;   // locked Up: wait for hold or release
     if (replayUpPressFrame) return true;  // short click: its press, on release

@@ -22,6 +22,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/DictionaryRegistry.h"
+#include "util/SlideSwitch.h"
 #include "util/WordSelectionInput.h"
 
 using Input = WordSelectionInput;
@@ -483,6 +484,15 @@ void ClipSelectionActivity::loop() {
 
   RenderLock lock;
   if (actionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+  // Under the touch lock (lookup opened by holding Up) the side Down button backs
+  // out to the book, e.g. after an accidental hold while paging back.
+  if (lookupPausesTouchLock && mode == Mode::Lookup) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+      cancel();
+      return;
+    }
+    if (mappedInput.isPressed(MappedInputManager::Button::Down)) return;  // don't move the selection first
+  }
 
   int touchX = 0;
   int touchY = 0;

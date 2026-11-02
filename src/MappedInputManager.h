@@ -119,6 +119,8 @@ class MappedInputManager {
   bool isButtonChordHeld() const { return chordMask != 0; }
   // Up held ~0.2 s under the touch lock (dictionary); the hold is then hidden.
   bool wasUpHold() const { return upHoldFrame; }
+  // Down held ~0.2 s while the touch lock is overridden (lock again).
+  bool wasDownHold() const { return downHoldFrame; }
   // Time since the last chord formed (work such as a refresh may run in between).
   unsigned long msSinceChordFormed() const { return millis() - chordFormedMs; }
   unsigned long getHeldTime() const;
@@ -180,6 +182,10 @@ class MappedInputManager {
   mutable bool upHoldFrame = false;
   mutable bool hideUpPressFrame = false;    // locked Up press, held back
   mutable bool replayUpPressFrame = false;  // that press, replayed at release
+  mutable unsigned long downPressedAt = 0;
+  mutable bool downHoldFrame = false;
+  mutable bool hideDownPressFrame = false;
+  mutable bool replayDownPressFrame = false;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif

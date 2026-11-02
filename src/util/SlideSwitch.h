@@ -18,6 +18,10 @@ inline bool lightPanelPausesTouchLock = false;
 // Set while an Up hold dictionary lookup runs under the lock (word
 // selection and definitions); cleared when the reader is back in front.
 inline bool lookupPausesTouchLock = false;
+// Touch-lock override: holding Up on Home unlocks touch while the switch stays
+// on lock. Ends when a book opens, on a Down hold, at sleep, or after 2 minutes
+// without use (ActivityManager).
+inline bool touchLockOverride = false;
 
 // The switch is in its touch-lock position, even while the light panel
 // pauses the lock (the chord shortcuts stay available in the panel).
@@ -29,5 +33,5 @@ inline bool slideSwitchTouchLockEngaged() {
 // touchscreen, gestures included; the physical buttons keep working.
 inline bool slideSwitchLocksTouch() {
   return slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS) && gpio.isToggleSwitchOn() &&
-         !lightPanelPausesTouchLock && !lookupPausesTouchLock;
+         !lightPanelPausesTouchLock && !lookupPausesTouchLock && !touchLockOverride;
 }

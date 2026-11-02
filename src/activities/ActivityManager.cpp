@@ -19,6 +19,8 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/HeaderBackTapTarget.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
@@ -38,6 +40,7 @@
 namespace {
 // A chord formed this soon after a button page turn reverts that turn.
 constexpr unsigned long CHORD_UNDO_WINDOW_MS = 600;
+constexpr unsigned long TOUCH_OVERRIDE_IDLE_MS = 2 * 60 * 1000;
 }  // namespace
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -133,6 +136,33 @@ void ActivityManager::loop() {
       } else if (lookupLeftOwner) {
         lookupPausesTouchLock = false;
       }
+    }
+    // Touch-lock override (hold Up on Home): ends when a book opens, on a Down
+    // hold, when the switch is moved, or after 2 minutes without use.
+    if (touchLockOverride) {
+      if (gpio.wasTouchActivity() || gpio.wasAnyPressed()) overrideLastUse = millis();
+      if (isReaderActivity() || mappedInput.wasDownHold() || !slideSwitchTouchLockEngaged() ||
+          millis() - overrideLastUse > TOUCH_OVERRIDE_IDLE_MS) {
+        touchLockOverride = false;
+        requestUpdate();  // closed padlock again
+        LOG_DBG("ACT", "Touch lock override ended");
+      }
+    }
+    if (mappedInput.wasUpHold() && slideSwitchTouchLockEngaged() && currentActivity->isHomeActivity() &&
+        !touchLockOverride) {
+      touchLockOverride = true;
+      overrideLastUse = millis();
+      // Header repaint shows the open padlock; a short note says how to undo it.
+      RenderLock lock;
+      const auto& m = UITheme::getInstance().getMetrics();
+      const char* note = tr(STR_TOUCH_PASS);
+      const int lineH = renderer.getLineHeight(SMALL_FONT_ID);
+      const int w = renderer.getTextWidth(SMALL_FONT_ID, note, EpdFontFamily::BOLD) + 16;
+      const int h = std::max<int>(m.batteryBarHeight, lineH);
+      renderer.fillRect((renderer.getScreenWidth() - w) / 2, m.topPadding, w, h, false);
+      renderer.drawCenteredText(SMALL_FONT_ID, m.topPadding + (h - lineH) / 2, note, true, EpdFontFamily::BOLD);
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      return;
     }
     // During such a lookup only its own screens take touch: no global gestures.
     if (!lookupPausesTouchLock && !currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {

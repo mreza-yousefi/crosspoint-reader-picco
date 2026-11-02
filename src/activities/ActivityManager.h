@@ -46,6 +46,7 @@ class ActivityManager {
   // once it is in front again (or the reader was left).
   const Activity* lookupOwner = nullptr;
   bool lookupLeftOwner = false;
+  unsigned long overrideLastUse = 0;  // touch-lock override idle timer
 
   void exitActivity(const RenderLock& lock);
 

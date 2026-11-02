@@ -1,0 +1,42 @@
+# Fork features (BOOX Picco)
+
+What this fork adds on top of upstream CrossPoint, and where each is documented.
+
+## Touch lock (slide switch set to Touch Reader Controls)
+Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
+
+| Feature | How |
+|---|---|
+| Full touch lock | Switch on (red): all touch ignored, side buttons work |
+| Lock indicator | Padlock centred in the top bar and in the top-right page corner; open while overridden |
+| Light panel under the lock | Up + Down together (touch works inside the panel) |
+| Refresh under the lock | Power + Up together |
+| Dictionary under the lock | Hold Up 0.2 s on a book page; Down backs out; short Up turns back on release |
+| Unlock from Home | Hold Up 0.2 s on Home; ends on opening a book, holding Down, sleep, 2 min idle |
+| Wake status | Waking into a book: light panel with "Touch locked · light check"; waking to Home: "Touch locked" note |
+| Shortcut safety | A shortcut's buttons never also turn a page; a page turned by a not-quite-simultaneous press is undone; no sleep while a shortcut is held |
+
+## Dictionary
+Details: [docs/dictionary.md](dictionary.md).
+
+- Kindle-style definition sheet over the lower 60% of the screen; swipe or side buttons page, tap above closes.
+- Dictionary-mode menu: Look Up / Another word / + (then Clip / Bookmark / <).
+- Less sensitive word selection in dictionary mode; returns to the book after a lookup.
+- Lookup history in `/vocabulary/lookups.tsv`.
+- Persian definitions: add Persian glyphs to your reading font with `scripts/merge_persian_font.py`.
+
+## Light
+- Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`, upstream report Free-Ink/freeink-sdk#167).
+- Brightness/warmth greyed out while the light is off; lamp button reliably turns it on.
+
+## Sleep screen
+- Strip with "Battery at sleep N%" and "· Book N%" (or "Charging N%" on USB).
+
+## Home Backup
+Details: [USER_GUIDE.md section 3.6.8](../USER_GUIDE.md#368-home-backup-fork) and [docs/home-backup.md](home-backup.md).
+
+- Incremental backup to a WebDAV server (manual, on sleep, while charging; daily), fetches books from `/to-reader/`.
+
+## Build and flashing
+- `pio run -e picco -t upload` writes only the app image (`scripts/app_only_upload.py`; upstream issue #4248).
+- Server address, user and certificate for Home Backup are compiled in (`src/backup/`); change them before publishing a fork.

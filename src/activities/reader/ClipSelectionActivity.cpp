@@ -660,8 +660,9 @@ int ClipSelectionActivity::selectionTop() const {
   return top;
 }
 
+// Called from loop(), which already holds the render lock (taking it again
+// would deadlock).
 void ClipSelectionActivity::flashAction(const int action) {
-  RenderLock lock(*this);
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect button = selectionGeometry::button(actionRect(), action, metrics.menuSpacing, actionCount());
   const char* labels[] = {tr(STR_LOOKUP), tr(STR_CLIP), tr(STR_BOOKMARK_OPTION)};

@@ -117,7 +117,7 @@ class MappedInputManager {
   bool wasSideButtonChord() const { return chordFrame == Chord::UpDown; }  // Up + Down
   bool wasPowerUpChord() const { return chordFrame == Chord::PowerUp; }    // Power + Up
   bool isButtonChordHeld() const { return chordMask != 0; }
-  // Up held ~0.3 s under the touch lock (dictionary); the hold is then hidden.
+  // Up held ~0.2 s under the touch lock (dictionary); the hold is then hidden.
   bool wasUpHold() const { return upHoldFrame; }
   // Time since the last chord formed (work such as a refresh may run in between).
   unsigned long msSinceChordFormed() const { return millis() - chordFormedMs; }
@@ -175,7 +175,7 @@ class MappedInputManager {
   mutable uint8_t chordMask = 0;  // raw button bits hidden while a chord is held
   mutable Chord chordFrame = Chord::None;
   mutable unsigned long chordFormedMs = 0;
-  static constexpr unsigned long UP_HOLD_LOOKUP_MS = 300;
+  static constexpr unsigned long UP_HOLD_LOOKUP_MS = 200;
   mutable unsigned long upPressedAt = 0;
   mutable bool upHoldFrame = false;
   mutable bool hideUpPressFrame = false;    // locked Up press, held back

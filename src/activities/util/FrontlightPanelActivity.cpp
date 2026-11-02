@@ -112,7 +112,7 @@ void FrontlightPanelActivity::onExit() {
 
 void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<FrontlightPanelActivity*>(user);
-  if (event.dragPermille < 0) return;
+  if (event.dragPermille < 0 || !self->lightOn) return;  // inactive while the light is off
   self->brightness = std::max(MIN_BRIGHTNESS, percentFromPermille(event.dragPermille));
   Frontlight.setBrightness(self->brightness);
   if (!self->lightOn && !slideSwitchOwnsLight()) {
@@ -124,7 +124,7 @@ void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, v
 
 void FrontlightPanelActivity::onWarmthEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<FrontlightPanelActivity*>(user);
-  if (event.dragPermille < 0) return;
+  if (event.dragPermille < 0 || !self->lightOn) return;
   self->warmth = percentFromPermille(event.dragPermille);
   Frontlight.setWarmth(self->warmth);
 }
@@ -198,6 +198,7 @@ void FrontlightPanelActivity::runTile(const int idx) {
 }
 
 void FrontlightPanelActivity::adjustBrightness(const int delta) {
+  if (!lightOn) return;  // levels are inactive while the light is off
   int next = static_cast<int>(brightness) + delta;
   if (next < MIN_BRIGHTNESS) next = MIN_BRIGHTNESS;
   if (next > 100) next = 100;
@@ -213,6 +214,7 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
 }
 
 void FrontlightPanelActivity::adjustWarmth(const int delta) {
+  if (!lightOn) return;
   int next = static_cast<int>(warmth) + delta;
   if (next < 0) next = 0;
   if (next > 100) next = 100;
@@ -335,6 +337,9 @@ void FrontlightPanelActivity::addSliderRow(UiScreen& screen, const char* label, 
   rowProps.increment = stepAction;
   rowProps.decrementValue = -BRIGHTNESS_STEP;
   rowProps.incrementValue = BRIGHTNESS_STEP;
+  // Light off: grey the levels out; the lamp toggle (or the slide switch)
+  // turns the light on first, which avoids changing them by accident.
+  rowProps.enabled = lightOn;
   if (showToggle) {
     // Lamp on/off after the +: the sliders set the level, this kills the light
     // outright. Filled glyph = on, outline = off.

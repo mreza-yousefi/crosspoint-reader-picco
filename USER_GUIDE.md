@@ -339,6 +339,8 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - With **Touch Reader Controls** (this fork), the switch is a **touch lock**: in the on position (red mark visible) the whole touchscreen is ignored, including taps, swipes, edge gestures, long-press, and the header Back button. The side Up/Down buttons still turn pages. Touches while locked do not keep the reader awake. In the off position (white) touch works normally.
   - A touch that starts while locked stays ignored until the finger lifts, even if you unlock meanwhile.
 
+- **Light panel (this fork)**: while the frontlight is off, the brightness and warmth controls are greyed out and inactive; turn the light on with the lamp button first.
+
 - **Light panel under the touch lock (BOOX Picco, this fork)**: while the touch lock is on, press the **Up and Down side buttons together** to open the light panel (brightness and warmth). Touch works inside the panel while it is open; close it (tap below it, swipe up, or Up+Down again) and the lock is active again. The two presses never turn a page; if they were not quite simultaneous and the first one already turned a page, that turn is undone. Without the lock, swipe down from the top as usual.
   - When the reader wakes straight into a book with the touch lock on, the light panel slides down over the page first, marked "Light check", so a light left on is easy to notice. Tap below it to close it; the lock is active again.
 

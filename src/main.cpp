@@ -43,6 +43,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "activities/util/FrontlightPanelActivity.h"
 #include "backup/BackupConfig.h"
 #include "backup/BackupEngine.h"
 #include "components/UITheme.h"
@@ -499,6 +500,10 @@ static bool holdSleepWhileUsbPowered() {
 }
 #endif
 
+#if FREEINK_DEVICE_PICCO
+static bool wakeLightPanelPending = false;
+#endif
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -824,8 +829,15 @@ void setup() {
       break;
   }
 
-  // Output polarity is resolved per render by ActivityManager (night mode
-  // inverts only the reading surfaces), so nothing to restore here.
+    // Output polarity is resolved per render by ActivityManager (night mode
+    // inverts only the reading surfaces), so nothing to restore here.
+
+#if FREEINK_DEVICE_PICCO
+  // A user wake straight into a book under the touch lock shows the light panel
+  // once the reader is up (see loop()): the lock hides the swipe, so a light
+  // left on overnight would otherwise go unnoticed in daylight.
+  wakeLightPanelPending = isSleepWake && resume != BootResume::Silent && !recoveryFirmwareMode && !rebootedFromPanic;
+#endif
 
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
@@ -924,6 +936,16 @@ void loop() {
 
   // After the exclusive-storage return: it saves settings to the SD card.
   handleSlideSwitch();
+#if FREEINK_DEVICE_PICCO
+  // Decided once, when the wake screen is up: only a book under the touch lock.
+  // The open panel pauses the lock; tapping below it closes it and re-locks.
+  if (wakeLightPanelPending && (activityManager.isReaderActivity() || activityManager.isForegroundHomeShown())) {
+    wakeLightPanelPending = false;
+    if (activityManager.isReaderActivity() && slideSwitchTouchLockEngaged() && Frontlight.present()) {
+      activityManager.pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager));
+    }
+  }
+#endif
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   // Under the render lock, so a step never overlaps the themes' gauge reads.

@@ -340,6 +340,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - A touch that starts while locked stays ignored until the finger lifts, even if you unlock meanwhile.
 
 - **Light panel under the touch lock (BOOX Picco, this fork)**: while the touch lock is on, press the **Up and Down side buttons together** to open the light panel (brightness and warmth). Touch works inside the panel while it is open; close it (tap below it, swipe up, or Up+Down again) and the lock is active again. The two presses never turn a page; if they were not quite simultaneous and the first one already turned a page, that turn is undone. Without the lock, swipe down from the top as usual.
+  - When the reader wakes straight into a book with the touch lock on, the light panel slides down first, so a light left on is easy to notice. Tap below it to close it; the lock is active again.
 
 - **Refresh shortcut under the touch lock (BOOX Picco, this fork)**: while the touch lock is on (also with the light panel open), press **Power and Up together** for a full screen refresh (clears ghosting), like **Power and Down** takes a screenshot. Without the lock, use the refresh button in the light panel. As with Up+Down, the presses never turn a page, a page turn from a not-quite-simultaneous press is undone, and holding the pair does not put the reader to sleep.
 

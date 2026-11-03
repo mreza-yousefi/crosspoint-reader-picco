@@ -449,7 +449,8 @@ static void runSleepBackup(const bool allowNetwork) {
   constexpr uint32_t CHARGING_BUDGET_MS = 15 * 60 * 1000;
   if (!allowNetwork) return;
   BackupConfig config;
-  if (!config.load() || !config.autoBackup || !config.isConfigured()) return;
+  // ready(): no Wi-Fi join for a run that cannot start (e.g. no certificate).
+  if (!config.load() || !config.autoBackup || backup::ready(config) != backup::Result::Ok) return;
   const int64_t age = backup::secondsSinceLastBackup(config);
   if (age >= 0 && age < BackupConfig::AUTO_INTERVAL_SECONDS) return;
   const bool charging = gpio.isUsbConnected();

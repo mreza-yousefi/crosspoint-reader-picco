@@ -22,8 +22,11 @@
 namespace backup {
 namespace {
 
-// Pinned server certificate (removed from the published history).
-constexpr char SERVER_CA[] = "";
+// PEM of the server certificate, pinned as the only trusted root for https://
+// (for a self-signed server, its own certificate). Kept on the SD card so no
+// server details are compiled in.
+constexpr char CA_PATH[] = "/.crosspoint/backup-ca.pem";
+constexpr size_t CA_MAX_BYTES = 8192;
 
 constexpr char MANIFEST_DIR[] = "/.crosspoint/backup";
 constexpr char MANIFEST_PATH[] = "/.crosspoint/backup/manifest.tsv";
@@ -241,7 +244,12 @@ class DavClient {
     const std::string credentials = config.username + ":" + config.password;
     auth_ = std::string("Basic ") + base64::encode(credentials.c_str()).c_str();
     if (https_) {
-      tls_.setCACert(SERVER_CA);
+      // Never fall back to an unverified connection: no certificate, no run.
+      if (!Storage.readFileToString("BACKUP", CA_PATH, CA_MAX_BYTES, ca_) || ca_.empty()) {
+        LOG_ERR("BACKUP", "No server certificate at %s", CA_PATH);
+        return false;
+      }
+      tls_.setCACert(ca_.c_str());
       client_ = &tls_;
     } else {
       client_ = &plain_;
@@ -414,6 +422,7 @@ class DavClient {
     return status;
   }
 
+  std::string ca_;  // must outlive tls_'s use of it (setCACert keeps the pointer)
   freeink::SecureClient tls_;
   WiFiClient plain_;
   Client* client_ = nullptr;
@@ -586,12 +595,20 @@ const char* resultLabel(const Result result) {
       return "server error";
     case Result::StorageError:
       return "SD card error";
+    case Result::NoCertificate:
+      return "no certificate";
   }
   return "?";
 }
 
-Result run(const BackupConfig& config, const uint32_t budgetMs, const ProgressCallback& onProgress) {
+Result ready(const BackupConfig& config) {
   if (!config.isConfigured()) return Result::NotConfigured;
+  if (startsWith(config.serverUrl, "https://") && !Storage.exists(CA_PATH)) return Result::NoCertificate;
+  return Result::Ok;
+}
+
+Result run(const BackupConfig& config, const uint32_t budgetMs, const ProgressCallback& onProgress) {
+  if (const Result notReady = ready(config); notReady != Result::Ok) return notReady;
   const uint32_t start = millis();
   lastServerEpoch = 0;
 

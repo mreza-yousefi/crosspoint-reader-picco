@@ -23,6 +23,7 @@ enum class Result : int {
   AuthFailed = 4,
   ServerError = 5,
   StorageError = 6,
+  NoCertificate = 7,  // https:// without the pinned certificate file on the SD card
 };
 
 struct Progress {
@@ -34,6 +35,10 @@ struct Progress {
 
 // Called after the scan and after each uploaded file. Return false to stop.
 using ProgressCallback = std::function<bool(const Progress&)>;
+
+// Ok when a run can start: credentials set and, for https://, the pinned
+// certificate file present. Local checks only (no network).
+Result ready(const BackupConfig& config);
 
 // budgetMs = 0 means no time limit.
 Result run(const BackupConfig& config, uint32_t budgetMs, const ProgressCallback& onProgress);

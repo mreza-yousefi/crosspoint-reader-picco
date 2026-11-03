@@ -18,17 +18,23 @@ Requests carry `User-Agent: CrossPoint/<version>`.
 
 ## Certificate pinning
 
-The reader trusts exactly one certificate: `SERVER_CA` in `src/backup/BackupEngine.cpp`. It is used as the only root
-for the TLS handshake (wolfSSL `SecureClient`). For a self-signed server certificate, paste its PEM there. Its
-SAN must match the host in the Server URL (an IP SAN works). Then rebuild and flash.
+For `https://` the reader trusts exactly one certificate: the PEM file `/.crosspoint/backup-ca.pem` on the SD card.
+It is used as the only root for the TLS handshake (wolfSSL `SecureClient`). For a self-signed server, copy the
+server's own certificate there. Its SAN must match the host in the Server URL (an IP SAN works). No rebuild is
+needed.
 
-When the server certificate changes, the reader fails with "network error" until the firmware is updated.
+Copy the file straight onto the card (USB drive mode or a card reader). File Transfer cannot read or write it, nor
+`backup.json`: a swapped certificate would let another device on the network read the backup login.
+Without it an `https://` backup does not start (Last backup shows "no certificate", and the daily backup does not
+join Wi-Fi); the reader never falls back to an unverified connection. When the server certificate changes, replace
+the file; until then runs fail with "network error".
 
 ## Files on the reader
 
 | Path | Content |
 |---|---|
 | `/.crosspoint/backup.json` | Server URL, user, obfuscated password, auto flag, last result and time |
+| `/.crosspoint/backup-ca.pem` | Pinned server certificate for `https://` (you copy it there) |
 | `/.crosspoint/backup/manifest.tsv` | `path`, `size`, `mtime`, `crc32` of each uploaded file |
 
 Deleting `manifest.tsv` makes the next run upload everything again.

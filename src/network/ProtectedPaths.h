@@ -9,11 +9,14 @@
 // manifest may read or write: their passwords are obfuscated with a device
 // key, so the files must stay on the device. Mirrors the getFilePath() of
 // WifiCredentialStore, OpdsServerStore and KOReaderCredentialStore. Prefix
-// match, so the stores' temp/backup siblings are covered too.
+// match, so the stores' temp/backup siblings are covered too. Home Backup's
+// config (password) and pinned certificate too: a swapped certificate would let
+// a LAN host read the backup login, so it is copied onto the card directly.
 namespace protectedpaths {
 
 inline constexpr const char* SENSITIVE_FILES[] = {"/.crosspoint/wifi.json", "/.crosspoint/opds.json",
-                                                  "/.crosspoint/koreader.json"};
+                                                  "/.crosspoint/koreader.json", "/.crosspoint/backup.json",
+                                                  "/.crosspoint/backup-ca.pem"};
 
 // SdFat also opens a name by its generated 8.3 alias (".crosspoint" is
 // CROSSP~1), which no spelling check can map back to the long name.

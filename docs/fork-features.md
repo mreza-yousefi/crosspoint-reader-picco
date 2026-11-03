@@ -43,7 +43,7 @@ Details: [docs/dictionary.md](dictionary.md).
 Details: [USER_GUIDE.md section 3.6.8](../USER_GUIDE.md#368-home-backup-fork) and [docs/home-backup.md](home-backup.md).
 
 - Incremental backup to a WebDAV server (manual, on sleep, while charging; daily), fetches books from `/to-reader/`.
+- No server details compiled in: enter URL and login on the reader; for HTTPS put the server certificate at `/.crosspoint/backup-ca.pem`.
 
 ## Build and flashing
 - `pio run -e picco -t upload` writes only the app image (`scripts/app_only_upload.py`; upstream issue #4248).
-- Server address, user and certificate for Home Backup are compiled in (`src/backup/`); change them before publishing a fork.

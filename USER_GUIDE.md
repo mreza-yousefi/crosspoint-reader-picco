@@ -583,7 +583,7 @@ Once any of the options above is set up, press **Confirm** while reading to open
 
 This fork can back the reader up to a WebDAV server on your home network, and fetch books you queue there. Open **Settings -> Connectivity -> Home Backup**, or choose **Home Backup** on the File Transfer screen.
 
-- **Server URL**, **Username**, **Password**: the WebDAV server and its login. The password is stored obfuscated on the SD card (`/.crosspoint/backup.json`).
+- **Server URL**, **Username**, **Password**: the WebDAV server and its login (no defaults; enter your own). The password is stored obfuscated on the SD card (`/.crosspoint/backup.json`).
 - **Automatic backup (daily)**: when the reader goes to sleep and the last good backup is more than 24 hours old, it joins the last-used Wi-Fi network and backs up first. On battery (at least 30%) it stops after 60 seconds; on USB power it may run up to 15 minutes. Whatever is left continues on the next sleep. Sleep is never blocked for longer.
 - **Last backup**: local date and time of the last good backup ("Today 14:32", "Yesterday 09:10", "28 Oct 21:05"), plus the reason if the latest run failed.
 - **Back up now**: runs a backup with a progress counter (files and MB).
@@ -596,7 +596,7 @@ What a run does:
 
 Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, `settings.json`, `state.json`, `recent.json` and `opds.json`. Excluded: credential stores (Wi-Fi, sync, OPDS tokens) and layout caches the reader rebuilds.
 
-The connection is HTTPS and trusts only one pinned server certificate, compiled into the firmware. See [docs/home-backup.md](docs/home-backup.md) for the server side and how to change the certificate.
+For an `https://` server the reader trusts only one pinned certificate: copy the server's certificate (PEM) to `/.crosspoint/backup-ca.pem` on the SD card, directly (USB drive mode or a card reader); File Transfer cannot change it. Without it the backup does not start, and Last backup shows "(no certificate)". See [docs/home-backup.md](docs/home-backup.md) for the server side.
 
 ### 3.7 Sleep Screen
 

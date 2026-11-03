@@ -13,7 +13,7 @@ Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
 | Light panel under the lock | Up + Down together (touch works inside the panel) |
 | Refresh under the lock | Power + Up together |
 | Change book under the lock | Up + Down, then the house icon in the light panel goes to Home; pick a book with the buttons |
-| Dictionary under the lock | Hold Up 0.2 s on a book page; Down backs out; short Up turns back on release |
+| Dictionary under the lock | Hold Up 0.2 s on a book page, tap a word: definition at once (no menu); Down backs out; short Up turns back on release |
 | Unlock from Home | Hold Up 0.2 s on Home; ends on opening a book, holding Down, moving the switch, sleep, 2 min idle |
 | Wake status | Waking into a book: light panel with "Touch locked · light check"; waking to Home: "Touch locked" note |
 | Shortcut safety | A shortcut's buttons never also turn a page; a page turned by a not-quite-simultaneous press is undone; no sleep while a shortcut is held |
@@ -22,7 +22,7 @@ Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
 Details: [docs/dictionary.md](dictionary.md).
 
 - Kindle-style definition sheet over the lower 60% of the screen; swipe or side buttons page, tap above closes.
-- Dictionary-mode menu: Look Up / Another word / + (then Clip / Bookmark / <).
+- Dictionary-mode menu: Look Up / Another word / + (then Clip / Bookmark / <). Under the lock no menu: the word is looked up on release, and the definition offers Another word / + above the sheet.
 - Less sensitive word selection in dictionary mode; returns to the book after a lookup.
 - Same large buttons in every selection menu; Look Up turns black with "Looking Up..." while it works.
 - One clean refresh when the definition sheet appears, and one when "Not Found" closes.

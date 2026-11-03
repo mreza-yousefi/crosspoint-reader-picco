@@ -36,6 +36,13 @@ class ClipSelectionActivity final : public Activity {
                         std::span<const std::unique_ptr<Page>> borrowedPages, int marginLeft, int marginTop,
                         Selection selection, int initialX = -1, int initialY = -1);
 
+  // Opens with this selection and the Clip/Bookmark actions shown (from the
+  // definition sheet's + under the touch lock). Before onEnter.
+  void preselect(const Selection& selection) {
+    initialSelection = selection;
+    lookupMoreActions = true;
+  }
+
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
@@ -72,10 +79,14 @@ class ClipSelectionActivity final : public Activity {
   // Dictionary mode (from the reader): larger buttons in two pages,
   // [Look Up | Another word | +] and, after +, [Clip | Bookmark | <].
   bool lookupMenu() const { return mode == Mode::Lookup && lookupAvailable; }
+  // Under the touch lock a finished selection is looked up at once (no menu);
+  // the definition sheet offers Another word and + instead.
+  bool directLookup() const;
   int actionCount() const { return mode == Mode::DefinitionLookup ? 1 : lookupMenu() ? 3 : 3 - firstAction(); }
   Rect actionButton(int action) const;
   const char* actionLabel(int action) const;
   void drawLookupActions() const;
+  void drawModeBand() const;
   int actionAt(int x, int y) const;
   void flashAction(int action);
   int closestInRow(uint16_t row, int centerX) const;
@@ -114,7 +125,9 @@ class ClipSelectionActivity final : public Activity {
   const int initialY;
   const Mode mode;
   bool lookupAvailable = false;
-  bool lookupMoreActions = false;  // dictionary-mode menu shows Clip/Bookmark
+  // Dictionary-mode menu shows Clip/Bookmark; under the touch lock this also
+  // turns off the look-up-on-release (directLookup).
+  bool lookupMoreActions = false;
   OptionPopup actionPopup;
   // ponytail: retain 16 button frames during refresh; increase only if overflow is observed.
   std::array<uint8_t, 16> pendingButtons{};

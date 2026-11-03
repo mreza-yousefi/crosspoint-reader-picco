@@ -22,6 +22,7 @@
 #include "fontIds.h"
 #include "util/DictHtmlPages.h"
 #include "util/HtmlToPlainText.h"
+#include "util/SlideSwitch.h"
 
 namespace {
 
@@ -133,6 +134,9 @@ bool DictionaryDefinitionActivity::enableLookup(Dictionary& dictionary, std::str
 
 void DictionaryDefinitionActivity::onEnter() {
   Activity::onEnter();
+  // A dictionary lookup started under the touch lock (only the reader's
+  // lookup chain handles the follow-up result).
+  followUp = lookup && lookupPausesTouchLock;
   initialLayoutFailed = !prepareDefinition(content);
   if (initialLayoutFailed) {
     content.lines.clear();
@@ -167,6 +171,47 @@ int DictionaryDefinitionActivity::sheetTop() const { return renderer.getScreenHe
 
 int DictionaryDefinitionActivity::sheetHeaderHeight() const {
   return renderer.getLineHeight(UI_12_FONT_ID) + 2 * UITheme::getInstance().getMetrics().verticalSpacing;
+}
+
+// Centred on the book page above the sheet, not on the sheet: they act on
+// the page (pick another word there).
+DictionaryDefinitionActivity::BodyArea DictionaryDefinitionActivity::followUpButton(const int index) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const int height = (renderer.getLineHeight(UI_10_FONT_ID) + 12) * 11 / 10;
+  const int y = top + (sheetTop() - top - height) / 2;
+  const int anotherWidth = (renderer.getTextWidth(UI_10_FONT_ID, tr(STR_ANOTHER_WORD)) + 24) * 11 / 10;
+  const int gap = metrics.contentSidePadding;
+  const int x = (renderer.getScreenWidth() - (anotherWidth + gap + height)) / 2;
+  if (index == 0) return {x, y, anotherWidth, height};
+  return {x + anotherWidth + gap, y, height, height};
+}
+
+void DictionaryDefinitionActivity::drawFollowUpButton(const int index, const bool pressed) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const BodyArea b = followUpButton(index);
+  renderer.fillRoundedRect(b.x, b.y, b.width, b.height, metrics.controlRadius, pressed ? Color::Black : Color::White);
+  if (!pressed) renderer.drawRoundedRect(b.x, b.y, b.width, b.height, 1, metrics.controlRadius, true);
+  const char* label = index == 0 ? tr(STR_ANOTHER_WORD) : "+";
+  const int textX = b.x + (b.width - renderer.getTextWidth(UI_10_FONT_ID, label)) / 2;
+  const int textY = b.y + (b.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+  renderer.drawText(UI_10_FONT_ID, textX, textY, label, !pressed);
+}
+
+// Pressed state first (one quick refresh), then back to word selection.
+void DictionaryDefinitionActivity::sendFollowUp(const int index) {
+  {
+    RenderLock lock;
+    drawFollowUpButton(index, true);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    // Word selection repaints the whole page: clean, no trace of the sheet.
+    renderer.promoteNextRefresh(HalDisplay::HALF_REFRESH);
+  }
+  LookupFollowUpResult followUpResult;
+  followUpResult.kind = index == 0 ? LookupFollowUpResult::Kind::AnotherWord : LookupFollowUpResult::Kind::MoreActions;
+  setResult(ActivityResult{followUpResult});
+  finish();
 }
 
 DictionaryDefinitionActivity::BodyArea DictionaryDefinitionActivity::bodyArea() const {
@@ -637,6 +682,16 @@ void DictionaryDefinitionActivity::loop() {
   if (mappedInput.wasScreenTapped(tx, ty)) {
     LOG_DBG("DICT", "Tap %d,%d (sheet top %d, page %d/%d)", tx, ty, sheetTop(), static_cast<int>(currentPage) + 1,
             totalPages);
+    if (followUp) {
+      constexpr int SLOP = 8;  // small targets: a little extra around each
+      for (int i = 0; i < 2; ++i) {
+        const BodyArea b = followUpButton(i);
+        if (tx >= b.x - SLOP && tx < b.x + b.width + SLOP && ty >= b.y - SLOP && ty < b.y + b.height + SLOP) {
+          sendFollowUp(i);
+          return;
+        }
+      }
+    }
     if (ty < sheetTop()) {  // tap on the book above the sheet: close the lookup
       ActivityResult result;
       result.isCancelled = true;
@@ -738,6 +793,10 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
       renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - metrics.contentSidePadding - w, headerY, counter,
                         true);
     }
+  }
+  if (followUp) {
+    drawFollowUpButton(0, false);
+    drawFollowUpButton(1, false);
   }
 
   // Body: two-pass draw inside a prewarm scope (same pattern as the reader's

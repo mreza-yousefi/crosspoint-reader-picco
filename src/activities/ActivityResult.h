@@ -53,6 +53,13 @@ struct ClippingResult {
   uint32_t endOffset = UINT32_MAX;
 };
 
+// From the definition sheet under the touch lock: back to word selection on
+// the same page, with a fresh selection or the looked-up one (Clip/Bookmark).
+struct LookupFollowUpResult {
+  enum class Kind : uint8_t { AnotherWord, MoreActions };
+  Kind kind = Kind::AnotherWord;
+};
+
 struct ProgressChangeResult {
   int spineIndex = 0;
   int page = 0;
@@ -80,9 +87,9 @@ struct FilePathResult {
   std::string path;
 };
 
-using ResultVariant =
-    std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
-                 PageResult, ClippingResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult>;
+using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
+                                   IntervalResult, PageResult, ClippingResult, ProgressChangeResult, NetworkModeResult,
+                                   FootnoteResult, FilePathResult, LookupFollowUpResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

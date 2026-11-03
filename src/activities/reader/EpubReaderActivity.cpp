@@ -464,7 +464,8 @@ bool EpubReaderActivity::startDictionaryLookup() {
 }
 
 void EpubReaderActivity::startClipSelection(const int initialX, const int initialY,
-                                            const ClipSelectionActivity::Mode mode) {
+                                            const ClipSelectionActivity::Mode mode,
+                                            const ClipSelectionActivity::Selection* preselect) {
   if (!section || !epub || section->currentPage < 0 || section->currentPage >= section->pageCount) return;
 
   const int pageNumber = section->currentPage;
@@ -523,6 +524,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
     requestUpdate();
     return;
   }
+  if (preselect) activity->preselect(*preselect);
   startActivityForResult(std::move(activity), [this, spineIndex, pageNumber, pageCount, layoutSignature,
                                                bookTitle = std::move(bookTitle), author = std::move(author),
                                                chapterTitle = std::move(chapterTitle)](const ActivityResult& result) {
@@ -563,7 +565,32 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
       }
       // Back to the book after a lookup (also when the word was not found),
       // not into another word selection: under the touch lock this re-locks.
-      startActivityForResult(std::move(lookup), [this](const ActivityResult&) { requestUpdate(); });
+      // Under the lock the definition sheet can send the reader back to word
+      // selection instead (Another word / +), with touch still paused.
+      startActivityForResult(std::move(lookup), [this, startPage, endPage, firstWord = clipping.startWordIndex,
+                                                 lastWord = clipping.endWordIndex](const ActivityResult& lookupResult) {
+        const auto* followUp = std::get_if<LookupFollowUpResult>(&lookupResult.data);
+        if (!followUp || lookupResult.isCancelled) {
+          requestUpdate();
+          return;
+        }
+        if (followUp->kind == LookupFollowUpResult::Kind::AnotherWord) {
+          startClipSelection(-1, -1, ClipSelectionActivity::Mode::Lookup);
+          return;
+        }
+        // The selection's own pages, so its page offsets match again.
+        if (section && startPage < section->pageCount) {
+          section->currentPage = startPage;
+          currentPageVisibleOffset = section->getVisibleTextOffsetForPage(startPage);
+        }
+        ClipSelectionActivity::Selection selection;
+        selection.firstPage = 0;
+        selection.lastPage = static_cast<uint16_t>(endPage - startPage);
+        selection.firstWord = firstWord;
+        selection.lastWord = lastWord;
+        selection.valid = true;
+        startClipSelection(-1, -1, ClipSelectionActivity::Mode::Lookup, &selection);
+      });
       return;
     }
     const uint16_t paragraphIndex =

@@ -57,6 +57,12 @@ class DictionaryDefinitionActivity final : public Activity {
   // book stays visible above; a tap above the sheet closes the lookup.
   int sheetTop() const;
   int sheetHeaderHeight() const;
+  // Under the touch lock the top of the page offers [Another word] [+]: back
+  // to word selection, fresh or with this word for Clip/Bookmark.
+  bool followUp = false;
+  BodyArea followUpButton(int index) const;  // 0 = Another word, 1 = +
+  void drawFollowUpButton(int index, bool pressed) const;
+  void sendFollowUp(int index);
 
   struct Definition {
     std::string headword;

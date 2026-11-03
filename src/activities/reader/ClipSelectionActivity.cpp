@@ -76,6 +76,8 @@ ClipSelectionActivity::ClipSelectionActivity(GfxRenderer& renderer, MappedInputM
       initialY(initialY),
       mode(Mode::DefinitionLookup) {}
 
+bool ClipSelectionActivity::directLookup() const { return lookupMenu() && lookupPausesTouchLock && !lookupMoreActions; }
+
 void ClipSelectionActivity::onEnter() {
   Activity::onEnter();
   std::string dictionaryPath;
@@ -507,6 +509,9 @@ void ClipSelectionActivity::loop() {
         flashAction(action);  // pressed state (Look Up reads "Looking up...") before the action runs
         if (lookupMenu()) {
           if (action == 2) {  // + / <: switch between the two menu pages
+            // Under the touch lock there is no Look Up page: < returns to
+            // picking a word (looked up on release).
+            if (lookupMoreActions && lookupPausesTouchLock) rangeStart = -1;
             lookupMoreActions = !lookupMoreActions;
             requestUpdate();
             return;
@@ -537,6 +542,10 @@ void ClipSelectionActivity::loop() {
         cancel();
       } else {
         selected = rangeStart = hit;
+        if (directLookup()) {
+          confirmSelection(ClippingResult::Action::Lookup);
+          return;
+        }
         requestUpdate();
       }
     }
@@ -577,6 +586,10 @@ void ClipSelectionActivity::loop() {
     touchDragSelecting = false;
     touchDragHasMoved = false;
     touchDragPageEndIndex = -1;
+    if (directLookup()) {
+      confirmSelection(ClippingResult::Action::Lookup);
+      return;
+    }
     requestUpdate();
     return;
   } else if (mappedInput.wasScreenTouchPressed(touchX, touchY)) {
@@ -873,6 +886,20 @@ void ClipSelectionActivity::drawWordHighlight(const int index, const int firstSe
                     BidiUtils::BidiBaseDir::AUTO, word.characterSpacing);
 }
 
+// Lookup modes: a band at the top says why the page looks different (also
+// after an Up hold). Under the touch lock a held word is looked up on release,
+// so the band turns black and says so, in the refresh the touch causes anyway.
+void ClipSelectionActivity::drawModeBand() const {
+  if (!isLookup()) return;
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int h = renderer.getLineHeight(SMALL_FONT_ID) + 6;
+  const bool lookingUp = directLookup() && touchDragSelecting;  // a finger on a word
+  renderer.fillRect(0, safe.y, renderer.getScreenWidth(), h, lookingUp);
+  renderer.drawCenteredText(SMALL_FONT_ID, safe.y + 3, lookingUp ? tr(STR_DICT_LOOKING_UP) : tr(STR_DICT_MODE_HINT),
+                            !lookingUp, EpdFontFamily::BOLD);
+  if (!lookingUp) renderer.fillRect(0, safe.y + h - 1, renderer.getScreenWidth(), 1, true);
+}
+
 bool ClipSelectionActivity::renderIncremental() {
   if (actionPopup.isActive() || mappedInput.hasTouch()) return false;
   if (lastRenderedPageOffset < 0 || lastRenderedPageOffset != currentPageOffset) return false;
@@ -1011,13 +1038,7 @@ void ClipSelectionActivity::render(RenderLock&&) {
   pageAt(currentPageOffset).render(renderer, fontId, marginLeft + offsetX, marginTop + offset);
   if (wordCount != 0) drawSelection();
   renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
-  if (isLookup()) {
-    // Say why the page looks different (also after an Up hold).
-    const int h = renderer.getLineHeight(SMALL_FONT_ID) + 6;
-    renderer.fillRect(0, safe.y, renderer.getScreenWidth(), h, false);
-    renderer.drawCenteredText(SMALL_FONT_ID, safe.y + 3, tr(STR_DICT_MODE_HINT), true, EpdFontFamily::BOLD);
-    renderer.fillRect(0, safe.y + h - 1, renderer.getScreenWidth(), 1, true);
-  }
+  drawModeBand();
 
   const auto labels = mappedInput.mapLabels(
       tr(STR_BACK), rangeStart < 0 ? tr(STR_SELECT) : (isLookup() ? tr(STR_LOOKUP) : tr(STR_DONE)), tr(STR_DIR_LEFT),

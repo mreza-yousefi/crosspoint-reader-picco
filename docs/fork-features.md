@@ -32,6 +32,7 @@ Details: [docs/dictionary.md](dictionary.md).
 
 ## Light
 - Light panel quick controls: night mode, refresh, orientation, touch, Home (replaces the Bluetooth tile; Bluetooth stays in Settings).
+- Warmth reads Off, 1-99%, Full (Off = cool light only, Full = warm light only). On the Picco there is no colour jump inside 1-99% at any brightness; the one visible step sits at these ends.
 - Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`, upstream report Free-Ink/freeink-sdk#167).
 - Brightness/warmth greyed out while the light is off; lamp button reliably turns it on.
 

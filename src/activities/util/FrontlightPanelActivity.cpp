@@ -331,7 +331,7 @@ void FrontlightPanelActivity::panelScreen(UiScreen& screen, void* user) {
 
 void FrontlightPanelActivity::addSliderRow(UiScreen& screen, const char* label, const uint8_t value,
                                            const fui::ActionId sliderAction, const fui::ActionId stepAction,
-                                           const bool showToggle) {
+                                           const bool showToggle, const bool namedEnds) {
   // Live percentage readout. The row draws before this call returns
   // (immediate mode), so borrowing a stack buffer is safe.
   char pct[8];
@@ -342,7 +342,7 @@ void FrontlightPanelActivity::addSliderRow(UiScreen& screen, const char* label, 
   // varies between the two rows is reassigned here; the rest keep their
   // constructed defaults, which already match the panel's card language.
   rowProps.label = label;
-  rowProps.value = pct;
+  rowProps.value = !namedEnds ? pct : value == 0 ? tr(STR_STATE_OFF) : value == 100 ? tr(STR_WARMTH_FULL) : pct;
   rowProps.sliderValue = value;
   rowProps.sliderAction = sliderAction;
   rowProps.decrement = stepAction;
@@ -404,7 +404,8 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
     addSliderRow(screen, tr(STR_BRIGHTNESS), brightness, ACTION_BRIGHTNESS, ACTION_BRIGHTNESS_STEP,
                  /*showToggle=*/!slideSwitchOwnsLight());
     if (Frontlight.hasColorTemperature()) {
-      addSliderRow(screen, tr(STR_WARMTH), warmth, ACTION_WARMTH, ACTION_WARMTH_STEP, /*showToggle=*/false);
+      addSliderRow(screen, tr(STR_WARMTH), warmth, ACTION_WARMTH, ACTION_WARMTH_STEP, /*showToggle=*/false,
+                   /*namedEnds=*/true);
     }
     screen.spacer(theme.spaceSm);
   }

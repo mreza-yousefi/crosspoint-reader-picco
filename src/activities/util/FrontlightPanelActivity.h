@@ -49,8 +49,9 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // One slider row: a caption line (name + live percentage) above
   // [-] [draggable 1-bit capsule] [+], plus a lamp on/off button after the +
   // when showToggle is set (the brightness row).
+  // namedEnds: show 0 / 100 as Off / Full (warmth: one colour only there).
   void addSliderRow(UiScreen& screen, const char* label, uint8_t value, freeink::ui::ActionId sliderAction,
-                    freeink::ui::ActionId stepAction, bool showToggle);
+                    freeink::ui::ActionId stepAction, bool showToggle, bool namedEnds = false);
   int computePanelBottom() const;
   void adjustBrightness(int delta);
   void adjustWarmth(int delta);

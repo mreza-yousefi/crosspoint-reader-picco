@@ -10,6 +10,7 @@
 #include "BackupRunActivity.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/RenderLock.h"
 #include "backup/BackupEngine.h"
 #include "components/UITheme.h"
 
@@ -53,6 +54,44 @@ void BackupSettingsActivity::editText(const StrId title, std::string BackupConfi
         config.*field = std::get<KeyboardResult>(result.data).text;
         config.save();
       });
+}
+
+bool BackupSettingsActivity::opensScreen(const int index) const {
+  return index == IDX_SERVER_URL || index == IDX_USERNAME || index == IDX_PASSWORD || index == IDX_BROWSE ||
+         (index == IDX_RUN && config.isConfigured());
+}
+
+// A tap on a row that opens another screen shows its pressed state first, so
+// it gets feedback before the slower screen change: the render the tap queues
+// anyway draws the row pressed (no extra refresh), and the screen opens once
+// that frame is on the panel. Buttons already show the selection.
+void BackupSettingsActivity::onRowAction(const fui::ActionEvent& event) {
+  if (event.longPress || !opensScreen(event.value)) {
+    UiListActivity::onRowAction(event);
+    return;
+  }
+  activeNav().selected = event.value;
+  app.clearTapFlash();
+  {
+    RenderLock lock;
+    pressedRow_ = event.value;
+    pressedPainted_ = false;
+  }
+  requestUpdate();
+}
+
+bool BackupSettingsActivity::handleCustomInput() {
+  if (pressedRow_ < 0) return false;  // only this (loop) task writes it
+  int index;
+  {
+    // Blocks while the pressed frame is still being drawn and refreshed.
+    RenderLock lock;
+    if (!pressedPainted_) return true;  // not drawn yet: wait for the render
+    index = pressedRow_;
+    pressedRow_ = -1;
+  }
+  activateIndex(index);
+  return true;
 }
 
 void BackupSettingsActivity::activateIndex(const int index) {
@@ -123,7 +162,9 @@ void BackupSettingsActivity::buildScreen(UiScreen& screen) {
 
   for (int i = 0; i < MENU_ITEMS; i++) {
     rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
+    rowItems_[i].state = i == pressedRow_ ? fui::StateActive : fui::StateNormal;
   }
+  if (pressedRow_ >= 0) pressedPainted_ = true;
   GUI.setCheckboxRow(rowItems_[IDX_AUTO], config.autoBackup);
 
   fui::ListProps props;

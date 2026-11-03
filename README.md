@@ -1,5 +1,13 @@
 # CrossPoint Reader
 
+> **This is a personal fork for the BOOX Picco**, not the official CrossPoint Reader. It adds a slide-switch touch
+> lock, a faster dictionary with a definition sheet, smoother front light control, Home Backup to your own server and more:
+> see [docs/fork-features.md](docs/fork-features.md). Install at your own risk.
+>
+> **Licence:** upstream code is MIT; this fork's changes are
+> [PolyForm Noncommercial 1.0.0](LICENSE-FORK.md), free for noncommercial use. See [NOTICE.md](NOTICE.md),
+> including how to ask for a commercial licence.
+
 [![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
 
 CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.

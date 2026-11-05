@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -18,6 +19,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "XtcReaderActivity.h"
+#include "util/BookSettings.h"
 #include "util/PluginEvents.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -73,7 +75,28 @@ void ReaderActivity::onEnter() {
     APP_STATE.saveToFile();
   }
 
+  documentId = KOReaderDocumentId::calculate(bookPath);
+  const bool validDocumentId =
+      documentId.size() == 32 && std::all_of(documentId.begin(), documentId.end(), [](const unsigned char c) {
+        return std::isdigit(c) || (c >= 'a' && c <= 'f');
+      });
+  if (!validDocumentId) {
+    LOG_ERR("READER", "No document id for %s", bookPath.c_str());
+    documentId.clear();
+  }
+  if (usesBookSettings()) {
+    bookSettingsPath = booksettings::pathForDocument(documentId);
+    booksettings::applyOrCreate(bookSettingsPath);
+  }
+
+  // Font loading can snap the size or clear a missing SD family; write that back to the book once.
+  const uint8_t pointSizeBefore = SETTINGS.fontPointSize;
+  char familyBefore[sizeof(SETTINGS.sdFontFamilyName)];
+  memcpy(familyBefore, SETTINGS.sdFontFamilyName, sizeof(familyBefore));
   sdFontSystem.ensureLoaded(renderer);
+  if (SETTINGS.fontPointSize != pointSizeBefore || strcmp(familyBefore, SETTINGS.sdFontFamilyName) != 0) {
+    booksettings::save(bookSettingsPath);
+  }
   applyInitialOrientation();
 
   if (!loadBook()) {
@@ -131,12 +154,7 @@ void ReaderActivity::flushReaderSession() {
     return;
   }
 
-  const std::string document = KOReaderDocumentId::calculate(bookPath);
-  const bool validDocument =
-      document.size() == 32 && std::all_of(document.begin(), document.end(), [](const unsigned char c) {
-        return std::isdigit(c) || (c >= 'a' && c <= 'f');
-      });
-  if (validDocument) {
+  if (!documentId.empty()) {
     char startTime[24];
     char endTime[24];
     char duration[16];
@@ -147,7 +165,7 @@ void ReaderActivity::flushReaderSession() {
     snprintf(duration, sizeof(duration), "%lu", static_cast<unsigned long>(readerSession.durationSeconds()));
     snprintf(startProgress, sizeof(startProgress), "%u", readerSession.startProgressBp());
     snprintf(endProgress, sizeof(endProgress), "%u", readerSession.endProgressBp());
-    const pluginevents::Var vars[] = {{"book", bookPath.c_str()},       {"document", document.c_str()},
+    const pluginevents::Var vars[] = {{"book", bookPath.c_str()},       {"document", documentId.c_str()},
                                       {"start_time", startTime},        {"end_time", endTime},
                                       {"duration_seconds", duration},   {"start_progress_bp", startProgress},
                                       {"end_progress_bp", endProgress}, {"progress_scale", "10000"}};

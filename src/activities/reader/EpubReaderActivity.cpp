@@ -57,6 +57,7 @@
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BookSettings.h"
 #include "util/BookmarkUtil.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
@@ -1245,21 +1246,22 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::TEXT_SETTINGS: {
-      startActivityForResult(std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
-                                                                    TextSettingsActivity::Tab::Family),
-                             [this](const ActivityResult&) {
-                               {
-                                 RenderLock lock;
-                                 if (section) {
-                                   rememberCurrentContentOffset();
-                                   cachedSpineIndex = currentSpineIndex;
-                                   cachedChapterTotalPageCount = section->pageCount;
-                                   nextPageNumber = section->currentPage;
-                                 }
-                                 section.reset();
-                               }
-                               openReaderMenu();
-                             });
+      startActivityForResult(
+          std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
+                                                 TextSettingsActivity::Tab::Family, bookSettingsPath),
+          [this](const ActivityResult&) {
+            {
+              RenderLock lock;
+              if (section) {
+                rememberCurrentContentOffset();
+                cachedSpineIndex = currentSpineIndex;
+                cachedChapterTotalPageCount = section->pageCount;
+                nextPageNumber = section->currentPage;
+              }
+              section.reset();
+            }
+            openReaderMenu();
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::BLUETOOTH:
@@ -2489,14 +2491,14 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
 }
 
 void EpubReaderActivity::renderStatusBar() const {
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  // Touch lock padlock in the top-right page margin; the book position sits left of it.
+  const int lockX = renderer.getScreenWidth() - right - 13;
   if (slideSwitchTouchLockEngaged()) {
-    // Touch lock indicator: a small padlock in the top-right page margin.
-    int top, right, bottom, left;
-    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-    const int x = renderer.getScreenWidth() - right - 13;
     const int y = top + 3;
-    renderer.drawRect(x + 2, y, 5, 6, true);  // shackle
-    renderer.fillRect(x, y + 5, 9, 7, true);  // body
+    renderer.drawRect(lockX + 2, y, 5, 6, true);  // shackle
+    renderer.fillRect(lockX, y + 5, 9, 7, true);  // body
   }
   const int currentPage = section ? section->currentPage + 1 : 1;
   const float pageCount = section ? section->estimatedTotalPages() : 1;
@@ -2506,6 +2508,29 @@ void EpubReaderActivity::renderStatusBar() const {
   std::string title;
   int textYOffset = 0;
   const auto sb = SETTINGS.statusBarSpec();
+
+  // Book position "~page/~total", scaled from this chapter's pages per spine byte. Uses the same
+  // spine sizes as calculateProgress, so it reads no new data. The page text starts screenMargin
+  // below the viewable top; skip the label when its line box does not fit above it.
+  if (sb.showBookProgressPercent && section && epub && SETTINGS.screenMargin > renderer.getLineHeight(SMALL_FONT_ID)) {
+    const uint64_t before = currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
+    const uint64_t through = epub->getCumulativeSpineItemSize(currentSpineIndex);
+    const uint64_t bookBytes = epub->getBookSize();
+    const uint64_t chapterPages = section->estimatedTotalPages();
+    const uint64_t chapterBytes = through > before ? through - before : 0;
+    // Too small to scale from: chapters under 3 pages (cover, title pages) or under
+    // 300 bytes per page (mostly images or markup).
+    constexpr uint64_t minBytesPerPage = 300;
+    if (bookBytes >= through && chapterPages >= 3 && chapterBytes / chapterPages >= minBytesPerPage) {
+      const uint64_t bookPage = chapterPages * before / chapterBytes + section->currentPage + 1;
+      const uint64_t bookPages = std::max(bookPage, (chapterPages * bookBytes + chapterBytes / 2) / chapterBytes);
+      char position[32];
+      snprintf(position, sizeof(position), "~%lu/~%lu", static_cast<unsigned long>(bookPage),
+               static_cast<unsigned long>(bookPages));
+      constexpr int lockGap = 4;
+      renderer.drawText(SMALL_FONT_ID, lockX - lockGap - renderer.getTextWidth(SMALL_FONT_ID, position), top, position);
+    }
+  }
 
   const auto note = linkNoteTitle.draw(sb.showsTitle(), bleturner::linkNote());
   if (note == bleturner::LinkNote::Connected) {
@@ -2961,15 +2986,16 @@ void EpubReaderActivity::handleOverlayInput() {
           RenderLock lock;  // the picker paints the framebuffer next
           settleOverlayRefresh();
         }
-        startActivityForResult(std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
-                                                                      TextSettingsActivity::Tab::Family),
-                               [this](const ActivityResult&) {
-                                 applyReaderTextSettings();
-                                 overlay = Overlay::Text;  // back to the Text panel
-                                 panelIndex = 0;
-                                 if (toolbarUi) toolbarUi->begin();  // the picker drew its own FUI screen
-                                 requestUpdate();                    // re-render page + Text panel
-                               });
+        startActivityForResult(
+            std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
+                                                   TextSettingsActivity::Tab::Family, bookSettingsPath),
+            [this](const ActivityResult&) {
+              applyReaderTextSettings();
+              overlay = Overlay::Text;  // back to the Text panel
+              panelIndex = 0;
+              if (toolbarUi) toolbarUi->begin();  // the picker drew its own FUI screen
+              requestUpdate();                    // re-render page + Text panel
+            });
       } else if (panelIndex == 4) {
         // Focus Reading is a genuine on/off: a tap toggles and applies live.
         SETTINGS.focusReadingEnabled = SETTINGS.focusReadingEnabled ? 0 : 1;
@@ -3138,7 +3164,7 @@ void EpubReaderActivity::applyReaderTextSettings() {
     // Release the old parser and page table before settings serialization needs heap.
     section.reset();  // force re-pagination with the new settings
   }
-  SETTINGS.saveToFile();
+  booksettings::persist(bookSettingsPath);
   // (Re)load or unload the selected SD-card font for the current family/size.
   // The reader otherwise only loads SD fonts on book open, so without this an
   // in-reader font change wouldn't take effect until re-opening the book.

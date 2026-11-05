@@ -20,8 +20,9 @@ class TextSettingsActivity final : public UiTabListActivity {
  public:
   enum class Tab : uint8_t { Family, Size, Layout, Style, Count };
 
+  // bookSettingsPath: the open book's settings file; empty when opened from Settings.
   TextSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const SdCardFontRegistry* registry,
-                       Tab initialTab = Tab::Family);
+                       Tab initialTab = Tab::Family, std::string bookSettingsPath = {});
 
   void onEnter() override;
   void render(RenderLock&&) override;
@@ -37,6 +38,7 @@ class TextSettingsActivity final : public UiTabListActivity {
     ParaIndentation,
     Alignment,
     ScreenMargin,
+    ResetLayout,  // shown only with a book open; must stay last
     Count
   };
   enum class StyleRow { FocusReading, Hyphenation, EmbeddedStyle, AntiAliasing, Count };
@@ -57,6 +59,9 @@ class TextSettingsActivity final : public UiTabListActivity {
 
   void applyFamily(int listIndex);
   void applySize(int listIndex);
+  // Saves SETTINGS and, with a book open, the book's settings file.
+  void saveSettings() const;
+  void resetBookLayout();
   // Repopulates sizes_ (and currentSizeIndex_) from the active family's
   // installed point sizes. Call after any family change.
   void rebuildSizeList();
@@ -93,6 +98,7 @@ class TextSettingsActivity final : public UiTabListActivity {
   };
 
   const SdCardFontRegistry* registry_;
+  std::string bookSettingsPath_;
   OptionPopup optionPopup_;
   std::vector<FontEntry> fonts_;
   std::vector<SizeEntry> sizes_;

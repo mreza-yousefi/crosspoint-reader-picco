@@ -489,6 +489,13 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
 
+  // Per-book reading settings (util/BookSettings): the Text Settings fields,
+  // i.e. withTextSettings() entries plus font size and SD font family.
+  void readingSettingsToJson(JsonDocument& doc) const;
+  // Missing or invalid keys keep the current value. Returns true if any field changed.
+  bool readingSettingsFromJson(JsonVariantConst doc);
+  void resetReadingSettings();
+
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
 

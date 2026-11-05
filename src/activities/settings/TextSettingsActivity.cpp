@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "CrossPointSettings.h"
@@ -18,6 +19,7 @@
 #include "TextSettingsPreview.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BookSettings.h"
 
 namespace fui = freeink::ui;
 
@@ -25,9 +27,10 @@ namespace {
 // Tab labels for Font | Size | Layout | Style.
 constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_LAYOUT, StrId::STR_STYLE};
 
-constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
-    StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
-    StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN};
+constexpr StrId LAYOUT_ROW_NAME_IDS[] = {StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING,
+                                         StrId::STR_CHARACTER_SPACING,     StrId::STR_EXTRA_SPACING,
+                                         StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,
+                                         StrId::STR_SCREEN_MARGIN,         StrId::STR_RESET_TEXT_SETTINGS};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION_NO_PREVIEW,
                                         StrId::STR_EMBEDDED_STYLE_NO_PREVIEW, StrId::STR_TEXT_AA_NO_PREVIEW};
 
@@ -64,8 +67,12 @@ static_assert(std::size(WORD_SPACING_IDS) == (WORD_SPACING_MAX - WORD_SPACING_MI
 }  // namespace
 
 TextSettingsActivity::TextSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           const SdCardFontRegistry* registry, Tab initialTab)
-    : UiTabListActivity("TextSettings", renderer, mappedInput), registry_(registry), tab_(initialTab) {}
+                                           const SdCardFontRegistry* registry, Tab initialTab,
+                                           std::string bookSettingsPath)
+    : UiTabListActivity("TextSettings", renderer, mappedInput),
+      registry_(registry),
+      bookSettingsPath_(std::move(bookSettingsPath)),
+      tab_(initialTab) {}
 
 const char* TextSettingsActivity::tabLabel(const int index) const { return I18N.get(TAB_NAME_IDS[index]); }
 
@@ -349,7 +356,7 @@ void TextSettingsActivity::activateRow(int row) {
         // gesture/key or a sleep. Saved here, not inside applyFamily, so the
         // SD write happens outside its RenderLock.
         if (currentFamilyIndex_ == row) {
-          SETTINGS.saveToFile();
+          saveSettings();
         }
         requestUpdate();
       }
@@ -357,7 +364,7 @@ void TextSettingsActivity::activateRow(int row) {
     case Tab::Size:
       if (row != currentSizeIndex_) {
         applySize(row);
-        SETTINGS.saveToFile();
+        saveSettings();
         requestUpdate();
       }
       break;
@@ -370,6 +377,24 @@ void TextSettingsActivity::activateRow(int row) {
     default:
       break;
   }
+}
+
+void TextSettingsActivity::saveSettings() const { booksettings::persist(bookSettingsPath_); }
+
+// Factory defaults for this book's reading settings. The reader re-lays the
+// book out when this screen closes, as after any other change here.
+void TextSettingsActivity::resetBookLayout() {
+  {
+    RenderLock lock;  // same rationale as applyFamily(): font swap and list state the render task reads
+    SETTINGS.resetReadingSettings();
+    sdFontSystem.ensureLoaded(renderer);
+    currentFamilyIndex_ = findCurrentFontIndex(registry_, SETTINGS.sdFontFamilyName, SETTINGS.fontFamily);
+    rebuildSizeList();
+    tabNavs[static_cast<int>(Tab::Family)].selected = currentFamilyIndex_ + 1;
+    tabNavs[static_cast<int>(Tab::Size)].selected = currentSizeIndex_ + 1;
+  }
+  saveSettings();
+  requestUpdate();
 }
 
 // Same RenderLock rationale as applyFamily(): a size change reloads the SD font
@@ -386,7 +411,7 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
   switch (static_cast<LayoutRow>(row)) {
     case LayoutRow::ParaSpacing:
       SETTINGS.extraParagraphSpacing = !SETTINGS.extraParagraphSpacing;
-      SETTINGS.saveToFile();
+      saveSettings();
       requestUpdate();
       break;
     case LayoutRow::ParaIndentation: {
@@ -394,26 +419,26 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       options.reserve(6);
       options.push_back(tr(STR_STATE_OFF));
       for (int spaces = 1; spaces <= 5; ++spaces) options.push_back(std::to_string(spaces));
-      optionPopup_.show(StrId::STR_PARAGRAPH_INDENTATION, options, SETTINGS.paragraphIndentSpaces, [](int idx) {
+      optionPopup_.show(StrId::STR_PARAGRAPH_INDENTATION, options, SETTINGS.paragraphIndentSpaces, [this](int idx) {
         SETTINGS.paragraphIndentSpaces = static_cast<uint8_t>(idx);
-        SETTINGS.saveToFile();
+        saveSettings();
       });
       requestUpdate();
       break;
     }
     case LayoutRow::LineSpacing:
       optionPopup_.show(StrId::STR_LINE_SPACING, LINE_SPACING_IDS, static_cast<int>(std::size(LINE_SPACING_IDS)),
-                        SETTINGS.lineSpacing, [](int idx) {
+                        SETTINGS.lineSpacing, [this](int idx) {
                           SETTINGS.lineSpacing = static_cast<uint8_t>(idx);
-                          SETTINGS.saveToFile();
+                          saveSettings();
                         });
       requestUpdate();
       break;
     case LayoutRow::Alignment:
       optionPopup_.show(StrId::STR_ALIGNMENT, ALIGNMENT_IDS, static_cast<int>(std::size(ALIGNMENT_IDS)),
-                        SETTINGS.paragraphAlignment, [](int idx) {
+                        SETTINGS.paragraphAlignment, [this](int idx) {
                           SETTINGS.paragraphAlignment = static_cast<uint8_t>(idx);
-                          SETTINGS.saveToFile();
+                          saveSettings();
                         });
       requestUpdate();
       break;
@@ -421,18 +446,18 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       const int cur = (std::clamp<int>(SETTINGS.wordSpacing, WORD_SPACING_MIN, WORD_SPACING_MAX) - WORD_SPACING_MIN) /
                       WORD_SPACING_STEP;
       optionPopup_.show(StrId::STR_WORD_SPACING, WORD_SPACING_IDS, static_cast<int>(std::size(WORD_SPACING_IDS)), cur,
-                        [](int idx) {
+                        [this](int idx) {
                           SETTINGS.wordSpacing = static_cast<uint8_t>(WORD_SPACING_MIN + idx * WORD_SPACING_STEP);
-                          SETTINGS.saveToFile();
+                          saveSettings();
                         });
       requestUpdate();
       break;
     }
     case LayoutRow::CharacterSpacing:
       optionPopup_.show(StrId::STR_CHARACTER_SPACING, CHARACTER_SPACING_IDS,
-                        static_cast<int>(std::size(CHARACTER_SPACING_IDS)), SETTINGS.characterSpacing, [](int idx) {
+                        static_cast<int>(std::size(CHARACTER_SPACING_IDS)), SETTINGS.characterSpacing, [this](int idx) {
                           SETTINGS.characterSpacing = static_cast<uint8_t>(idx);
-                          SETTINGS.saveToFile();
+                          saveSettings();
                         });
       requestUpdate();
       break;
@@ -441,13 +466,16 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       options.reserve((MARGIN_MAX - MARGIN_MIN) / MARGIN_STEP + 1);
       for (int m = MARGIN_MIN; m <= MARGIN_MAX; m += MARGIN_STEP) options.push_back(std::to_string(m));
       const int cur = (std::clamp<int>(SETTINGS.screenMargin, MARGIN_MIN, MARGIN_MAX) - MARGIN_MIN) / MARGIN_STEP;
-      optionPopup_.show(StrId::STR_SCREEN_MARGIN, options, cur, [](int idx) {
+      optionPopup_.show(StrId::STR_SCREEN_MARGIN, options, cur, [this](int idx) {
         SETTINGS.screenMargin = static_cast<uint8_t>(MARGIN_MIN + idx * MARGIN_STEP);
-        SETTINGS.saveToFile();
+        saveSettings();
       });
       requestUpdate();
       break;
     }
+    case LayoutRow::ResetLayout:
+      resetBookLayout();
+      break;
 
     default:
       break;
@@ -501,7 +529,7 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     default:
       return;
   }
-  SETTINGS.saveToFile();
+  saveSettings();
   requestUpdate();
 }
 
@@ -539,7 +567,8 @@ int TextSettingsActivity::listCount() const {
     case Tab::Size:
       return static_cast<int>(sizes_.size());
     case Tab::Layout:
-      return static_cast<int>(LayoutRow::Count);
+      // ResetLayout is the last row and applies only to an open book.
+      return static_cast<int>(LayoutRow::Count) - (bookSettingsPath_.empty() ? 1 : 0);
     case Tab::Style:
       return static_cast<int>(StyleRow::Count);
 

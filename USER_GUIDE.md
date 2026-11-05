@@ -247,6 +247,8 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "Book Bar Only" - Show book progress (as bar)
   - "Full w/ Chapter Bar" - Show status bar with chapter progress (as bar)
 
+- **Book position (EPUB, this fork)**: the top-right corner of the page shows your position in the whole book as `~143/~312` (page in book / pages in book), left of the touch-lock padlock. Both numbers are estimates: they are scaled from the current chapter's page count and its size in the book, so they can change a little when a new chapter starts. The bottom status bar still shows the page within the chapter. The position is shown when **Settings → Reader → Customise Status Bar → Book Progress Percentage** is on, and only when the screen margin leaves room above the text (about 20 pixels or more); otherwise it is hidden. **Screen Margin** is set per book in **Text Settings → Layout**, so the position may show in one book and not in another. It is also hidden in chapters too short to estimate from: chapters under 3 pages (cover, title pages) and chapters with very little text per page (mostly pictures).
+
 - **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
   
   - "Never" (default) - Always show battery percentage
@@ -268,6 +270,15 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "ON" - Enable the fix
 
 #### 3.6.2 Reader
+
+**Per-book text settings (fork).** Each book keeps its own text settings: font family and size, line, word and character spacing, extra paragraph spacing, paragraph indentation, alignment, screen margin, focus reading, hyphenation, embedded style and text anti-aliasing. Other reader settings (such as Images and Reading Orientation) stay global.
+
+- Changes made in **Text Settings** from the Reader Menu, or in the **Text** panel of the reader toolbar, apply to the open book only. The values are saved for that book and are used again every time you open it.
+- **Settings → Reader → Text Settings**, with no book open, sets the values for books you have not opened yet. A book you open for the first time starts with the last values used: those of the last book you opened, or those set here afterwards with no book open.
+- **Text Settings → Layout → Reset Text Settings** (only with a book open) sets this book's text settings back to the factory defaults and lays the book out again.
+- The settings are stored in `/.crosspoint/book-settings/`, one small file per book. The file name comes from the book's content, so the settings stay with a book you rename or move. **Clear Reading Cache** does not delete them, and Home Backup includes them.
+
+The Reader settings are:
 
 - **Reader Font Family**: Choose the font used for reading:
   
@@ -595,7 +606,7 @@ What a run does:
 1. **Fetches queued books**: every file in the server's `/to-reader/` folder is downloaded into `/books` (as `name (2).epub` if the name exists), then deleted from `/to-reader/`. Files whose size still changes during a 2-second check, such as a browser upload in progress, wait for the next run.
 2. **Uploads changes**: only files that changed since the last run (tracked in `/.crosspoint/backup/manifest.tsv`) are sent. It never deletes anything on the server.
 
-Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, `settings.json`, `state.json`, `recent.json` and `opds.json`. Excluded: credential stores (Wi-Fi, sync, OPDS tokens) and layout caches the reader rebuilds.
+Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, per-book text settings (`book-settings/`), `settings.json`, `state.json`, `recent.json` and `opds.json`. Excluded: credential stores (Wi-Fi, sync, OPDS tokens) and layout caches the reader rebuilds.
 
 For an `https://` server the reader trusts only one pinned certificate: copy the server's certificate (PEM) to `/.crosspoint/backup-ca.pem` on the SD card, directly (USB drive mode or a card reader); File Transfer cannot change it. Without it the backup does not start, and Last backup shows "(no certificate)". See [docs/home-backup.md](docs/home-backup.md) for the server side.
 
@@ -747,6 +758,7 @@ Available options include:
 
 - **Select Chapter** – Open the table of contents to jump to a specific chapter (see [Chapter Selection](#51-chapter-selection) below).
 - **Links and Footnotes** – Select an internal link on the current page. This option appears when the page contains links.
+- **Text Settings** – Change the font and layout of this book; the values are kept for this book only (see [Per-book text settings](#362-reader)).
 - **Look Up** – Select a word on the current page and show its dictionary definition (see [docs/dictionary.md](docs/dictionary.md)). Requires a dictionary to be selected in **Settings → Reader → Dictionary**.
 - **Bluetooth Page Turner** – Toggle Bluetooth for the saved remote. This entry appears after pairing a remote in **Settings → Connectivity → Bluetooth Page Turner** and disappears if that selected remote is forgotten.
 - **Create Clipping** – Select a range of text on the current page and save it as a highlighted clipping.

@@ -237,6 +237,7 @@ class EpubReaderActivity final : public ReaderActivity {
   // failed Epub itself does not outlive loadBook().
   std::string loadProtectionError;
 
+  bool usesBookSettings() const override { return true; }
   bool loadBook() override;
   bool handleLoadFailure() override;
   // Wi-Fi join + SNTP for a loan whose date could not be verified, then a

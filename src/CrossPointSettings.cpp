@@ -31,6 +31,20 @@ void copyToField(char* dest, const char* src, const size_t maxLen) {
   dest[maxLen - 1] = '\0';
 }
 
+// Range check for a numeric setting; out-of-range values fall back.
+uint8_t validatedSettingValue(const SettingInfo& info, const uint8_t v, const uint8_t fallback) {
+  switch (info.type) {
+    case SettingType::ENUM:
+      return v < info.enumLabels().size() ? v : fallback;
+    case SettingType::TOGGLE:
+      return v < 2 ? v : fallback;
+    case SettingType::VALUE:
+      return std::clamp(v, info.valueRange.min, info.valueRange.max);
+    default:
+      return v;
+  }
+}
+
 }  // namespace
 
 void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings) {
@@ -175,18 +189,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       }
     } else {
       const uint8_t fieldDefault = s.*(info.valuePtr);  // struct-initializer default, read before we overwrite it
-      uint8_t v = doc[info.key] | fieldDefault;
-      if (info.type == SettingType::ENUM) {
-        v = clamp(v, (uint8_t)info.enumLabels().size(), fieldDefault);
-      } else if (info.type == SettingType::TOGGLE) {
-        v = clamp(v, (uint8_t)2, fieldDefault);
-      } else if (info.type == SettingType::VALUE) {
-        if (v < info.valueRange.min)
-          v = info.valueRange.min;
-        else if (v > info.valueRange.max)
-          v = info.valueRange.max;
-      }
-      s.*(info.valuePtr) = v;
+      s.*(info.valuePtr) = validatedSettingValue(info, doc[info.key] | fieldDefault, fieldDefault);
     }
   };
   forEachBaseSetting(visit);
@@ -310,6 +313,55 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   LOG_DBG("CPS", "Settings loaded from file");
 
   return true;
+}
+
+void CrossPointSettings::readingSettingsToJson(JsonDocument& doc) const {
+  auto visit = [&](const SettingInfo& info) {
+    if (info.inTextSettings && info.key && info.valuePtr) doc[info.key] = this->*(info.valuePtr);
+  };
+  forEachBaseSetting(visit);
+  doc["fontSize"] = fontPointSize;
+  // Written even when empty: the built-in font is a per-book choice too.
+  doc["sdFontFamilyName"] = sdFontFamilyName;
+}
+
+bool CrossPointSettings::readingSettingsFromJson(JsonVariantConst doc) {
+  bool changed = false;
+  auto visit = [&](const SettingInfo& info) {
+    if (!info.inTextSettings || !info.key || !info.valuePtr || !doc[info.key].is<uint8_t>()) return;
+    const uint8_t current = this->*(info.valuePtr);
+    const uint8_t v = validatedSettingValue(info, doc[info.key].as<uint8_t>(), current);
+    changed |= v != current;
+    this->*(info.valuePtr) = v;
+  };
+  forEachBaseSetting(visit);
+
+  if (doc["fontSize"].is<uint8_t>()) {
+    const uint8_t pt = doc["fontSize"].as<uint8_t>();
+    if (pt > LEGACY_FONT_SIZE_MAX && pt != fontPointSize) {
+      fontPointSize = pt;
+      changed = true;
+    }
+  }
+  if (doc["sdFontFamilyName"].is<const char*>()) {
+    const char* name = doc["sdFontFamilyName"].as<const char*>();
+    if (strncmp(name, sdFontFamilyName, sizeof(sdFontFamilyName) - 1) != 0) {
+      copyToField(sdFontFamilyName, name, sizeof(sdFontFamilyName));
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+void CrossPointSettings::resetReadingSettings() {
+  // Factory values come from the member initializers; the temporary is ~0.5 KB of stack.
+  CrossPointSettings defaults;
+  auto visit = [&](const SettingInfo& info) {
+    if (info.inTextSettings && info.valuePtr) this->*(info.valuePtr) = defaults.*(info.valuePtr);
+  };
+  forEachBaseSetting(visit);
+  fontPointSize = defaults.fontPointSize;
+  copyToField(sdFontFamilyName, defaults.sdFontFamilyName, sizeof(sdFontFamilyName));
 }
 
 CrossPointSettings::StatusBarSpec CrossPointSettings::statusBarSpec() const {

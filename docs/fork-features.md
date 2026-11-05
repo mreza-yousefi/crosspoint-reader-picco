@@ -36,6 +36,17 @@ Details: [docs/dictionary.md](dictionary.md).
 - Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`, upstream report Free-Ink/freeink-sdk#167).
 - Brightness/warmth greyed out while the light is off; lamp button reliably turns it on.
 
+## Per-book text settings
+Details: [USER_GUIDE.md section 3.6.2](../USER_GUIDE.md#362-reader).
+
+- Each book keeps its own Text Settings (font, size, spacing, indent, alignment, margin, style toggles) in `/.crosspoint/book-settings/<KOReader document id>.json`; the id hashes the book's content, so renaming or moving the book keeps them, and the book file is never changed.
+- A new book starts from the last-used values; Text Settings opened from Settings with no book open set those values for books not opened yet.
+- Text Settings -> Layout -> Reset Text Settings (book open only) restores the factory values for this book.
+- Kept by Clear Reading Cache; included in Home Backup.
+
+## Reader
+- EPUB book position `~page/~total` in the top-right page margin, left of the padlock; estimated from the current chapter's pages and its share of the book size. Shown with Book Progress Percentage on and a screen margin (set per book) of 20 px or more; hidden in chapters under 3 pages or under 300 bytes per page ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
+
 ## Sleep screen
 - Strip with "Battery at sleep N%" and "· Book N%" (or "Charging N%" on USB).
 

@@ -22,12 +22,18 @@ class ReaderActivity : public Activity {
   ReaderSession readerSession;
   std::atomic<bool> pageRendered{false};
   bool bookRemembered = false;
+  // KOReader document id, computed once in onEnter(); "" when the book cannot be fingerprinted.
+  std::string documentId;
+  // This book's reading settings file; "" without per-book settings or a document id.
+  std::string bookSettingsPath;
   void markPageRendered() { pageRendered.store(true, std::memory_order_release); }
   void rememberBookOnceRendered();
 
   explicit ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
                           std::string bookPath, bool allowFastInitialRefresh);
 
+  // True for readers that lay out text with per-book reading settings (applied in onEnter()).
+  virtual bool usesBookSettings() const { return false; }
   virtual bool loadBook() = 0;
   // Called when loadBook() failed. Return true to keep the activity alive
   // (e.g. showing a dialog); false finishes it (the default).

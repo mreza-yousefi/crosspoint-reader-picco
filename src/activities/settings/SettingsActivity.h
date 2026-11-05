@@ -73,6 +73,7 @@ struct SettingInfo {
     return *this;
   }
 
+  // Also makes the setting per-book (CrossPointSettings::readingSettingsToJson).
   SettingInfo& withTextSettings() {
     inTextSettings = true;
     return *this;

@@ -100,8 +100,8 @@ bool wantDir(const std::string& path) {
   if (startsWith(path, "/.crosspoint/")) {
     const std::string sub = path.substr(strlen("/.crosspoint/"));
     // Layout caches are rebuilt by the reader; keep only their progress.bin.
-    return startsWith(sub, "bookmarks") || startsWith(sub, "clippings") || startsWith(sub, "epub_") ||
-           startsWith(sub, "xtc_");
+    return startsWith(sub, "bookmarks") || startsWith(sub, "book-settings") || startsWith(sub, "clippings") ||
+           startsWith(sub, "epub_") || startsWith(sub, "xtc_");
   }
   return true;
 }

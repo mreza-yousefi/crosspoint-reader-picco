@@ -104,7 +104,9 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
 // sizes and a family built at 8..18 offers six. The selected point size persists
 // in SETTINGS.fontPointSize (saved/loaded manually in CrossPointSettings::
 // toJson/fromJson — the generic loop skips dynamic entries), while the ENUM
-// contract shared with the web UI stays index-based.
+// contract shared with the web UI stays index-based. Per-book settings skip
+// dynamic entries too: a new dynamic Text Settings field must also be handled in
+// readingSettingsToJson/FromJson and resetReadingSettings.
 inline SettingInfo buildFontSizeSetting(const SdCardFontRegistry* registry) {
   // Captured by copy: getSettingsList() returns by value and the lambdas outlive
   // this call, so they must not reference the registry.

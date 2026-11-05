@@ -1,308 +1,131 @@
-# CrossPoint Reader
+# CrossPoint Picco
 
-> **This is a personal fork for the BOOX Picco**, not the official CrossPoint Reader. It adds a slide-switch touch
-> lock, a faster dictionary with a definition sheet, smoother front light control, Home Backup to your own server and more:
-> see [docs/fork-features.md](docs/fork-features.md). Install at your own risk.
->
-> **Licence:** upstream code is MIT; this fork's changes are
-> [PolyForm Noncommercial 1.0.0](LICENSE-FORK.md), free for noncommercial use. See [NOTICE.md](NOTICE.md),
-> including how to ask for a commercial licence.
+CrossPoint Picco is a fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) for the
+BOOX Picco. It is a personal project. It is built on CrossPoint Reader and the
+[FreeInk SDK](https://github.com/Free-Ink/freeink-sdk), and keeps their reading engine, file formats and most of
+their features. This fork refines some of them and adds features for daily reading on the Picco. It is not the
+official CrossPoint Reader.
 
-[![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
+## What this fork adds
 
-CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.
+A detailed list is in [docs/fork-features.md](docs/fork-features.md).
 
-### Now running on:
+### Touch lock and button shortcuts
 
-- **ESP32C3-based** Xteink X4 and X3.
-- **ESP32S3-based** Xteink X4Pro and X4Classic, Seeed reTerminal Sticky, M5PaperMono, Metalio E-Ink 4, EEGOREAD A4 and Boox Picco.
+Details: [User Guide, Controls](USER_GUIDE.md#363-controls).
 
-Check [our Devices page](https://crosspointreader.com/devices) for the full list.
+- The slide switch is a touch lock toggle (setting **Slide Switch: Touch Reader Controls**). Touch is ignored, the
+  side buttons still turn pages, and the lock stays on through sleep.
+- A padlock shows the lock in the top bar and in the top-right corner of the book page.
+- Up + Down opens the light panel while touch is locked. Its Home button lets you change the book.
+- Power + Up gives a full screen refresh while touch is locked.
+- Hold Up on Home to unlock touch for a short time.
+- Waking into a book with the lock on shows the light panel first, so a light left on is easy to notice.
+- A button shortcut never also turns a page.
 
-![CrossPoint Reader running on Xteink device](./docs/images/cover.jpg)
+### Dictionary
 
-> If you're planning to buy an Xteink device, consider purchasing an **X3/X4 Developer Edition** through https://crosspointreader.com. CrossPoint receives a small share of each sale, helping fund development costs.
+Details: [docs/dictionary.md](docs/dictionary.md#the-definition-screen).
 
-## What can CrossPoint do?
+- Definitions open as a sheet over the lower part of the screen. The book page stays visible above it.
+- With touch locked, hold Up on a book page and tap a word. The definition opens at once, without a menu.
+- A simpler selection menu (Look Up, Another word, +). After a lookup the reader returns to the book.
+- Each lookup is added to a list in `/vocabulary/lookups.tsv`.
+- Persian definitions: add Persian letters to your reading font with a script
+  ([how](docs/dictionary.md#persian-and-other-arabic-script-definitions)).
 
-- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, adaptive table layouts, native CJK ruby annotations, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](docs/dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more.
+### Front light
 
-- **Various formats**: native handling for `.epub`, `.xtc/.xtch`, `.txt`, and `.bmp`.
+Details: [User Guide, Control Center and Frontlight](USER_GUIDE.md#control-center-and-frontlight).
 
-- **Touch reading**: follow EPUB links and look up words in the dictionary on touch-enabled devices.
+- Smoother brightness and warmth steps.
+- Warmth reads Off, 1-99%, Full, with no colour jump inside 1-99%.
+- A Home button in the light panel. It takes the place of the Bluetooth button; Bluetooth stays in Settings.
+- Brightness and warmth are greyed out while the light is off.
 
-- **Highlights and clippings**: highlight text in EPUBs and save excerpts as clippings. Use the reader menu on button devices, or hold a word and drag the selection handles on touch devices. Look up selected words or phrases in the dictionary. Enable Sync Clippings to sync saved excerpts through a compatible CrossPoint Sync server. See [Clippings and Highlights](USER_GUIDE.md#53-clippings-and-highlights).
+### Home Backup
 
-- **Screenshots.**
+Details: [User Guide, Home Backup](USER_GUIDE.md#368-home-backup-fork) and [docs/home-backup.md](docs/home-backup.md).
 
-- **Custom fonts**: install your favorite fonts on the SD card.
+- Backs up the SD card to your own WebDAV server: on request, or once a day when the reader goes to sleep. Only
+  changed files are sent.
+- Downloads books you put in the server's `/to-reader/` folder.
+- No server details are built into the firmware. For HTTPS the reader trusts only a certificate you copy to the SD
+  card.
 
-- **Tilt page turn (X3 and Sticky)**.
+### Reading
 
-- **Bluetooth page turners**: pair a remote under Settings → Connectivity → Bluetooth Page Turner. Map short and long presses to page turns, chapter navigation, the reader menu, or clipping selection.
+- Per-book reading settings: font and layout are saved for each book. A book is recognised by its content, so the
+  settings stay when you rename or move the file. Home Backup includes them. A **Reset to default layout** action
+  is available.
+- The position in the book, `~page/~total`, shows in the top-right page margin next to the padlock. It is an
+  estimate. It shows when Book Progress Percentage is on and the screen margin is 20 or more.
 
-- **USB Drive mode (X4Pro)**: access the SD card as USB mass storage.
+### Sleep screen
 
-- **Library workflow**: indexed title/author search, recently-added and alphabetical views, multilingual grouping, folder browser, recent books, and SD-cache management.
+Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).
 
-- **Wireless workflows**:
-  
-  - File transfer web UI
-  - EPUB Optimizer
-  - Web settings UI/API (edit many device settings from browser)
-  - WebSocket fast uploads
-  - WebDAV handler
-  - AP mode (hotspot) and STA mode (join existing Wi-Fi), both with QR helpers
-  - Calibre wireless connect flow
-  - OPDS browser with saved servers (up to 8), search, pagination, and direct download
-  - OTA update checks and installs from GitHub releases
+- A strip shows the battery level at sleep and the progress in the open book, or the charging state on USB.
 
-- **Customization**: night mode, multiple themes (Classic, Lyra, Lyra Extended, RoundedRaff), sleep screen modes including transparent overlays, front/side button remapping, status bar controls, power-button behavior, refresh cadence, and more.
+### Other
 
-- **Localization**: 34 UI languages and counting, including CJK font fallback and RTL support.
+- `pio run -e picco -t upload` writes only the app image. The vendor bootloader and recovery partition stay in
+  place (upstream issue [#4248](https://github.com/crosspoint-reader/crosspoint-reader/issues/4248)).
 
-- **SD card plugins**: install plugins for book catalogs, downloads, and tools in the device's web interface. Enable Plugins under Settings → Connectivity to show them on Home. On-device plugins use existing firmware screens and operations. JavaScript runs in a browser on your phone or computer, and its page must stay open while it works. Plugins follow [CrossPoint's reading-focused scope](SCOPE.md#out-of-scope). See the [plugin guide](docs/sd-plugins.md).
+## Contributions upstream
 
-### Coming soon:
+- The Picco warmth fix was merged into the FreeInk SDK
+  ([Free-Ink/freeink-sdk#172](https://github.com/Free-Ink/freeink-sdk/pull/172)).
 
-- More themes.
+## Install
 
-- Much more! stay tuned.
+There are no ready-made release files. You build the firmware from source and flash it over USB. It replaces the
+stock firmware on your reader. Do this at your own risk. There is no warranty.
 
----
+1. Set up PlatformIO (pioarduino) as described in [Getting started](docs/contributing/getting-started.md).
+2. Clone the repository with its submodules. The FreeInk SDK is a submodule
+   ([fork, branch `picco-custom`](https://github.com/mreza-yousefi/freeink-sdk-picco/tree/picco-custom)).
 
-## USB-locked devices (Xteink Unlocker)
+   ```sh
+   git clone --recurse-submodules https://github.com/mreza-yousefi/crosspoint-reader-picco.git
+   cd crosspoint-reader-picco
+   ```
 
-Some Xteink units purchased from third-party stores (e.g. AliExpress) ship with USB flashing locked from the factory.
-If your device is locked, you will need to use the **Xteink Unlocker** tool available at
-https://crosspointreader.com/#unlock-tool before you can flash CrossPoint.
+3. Build:
 
-**You do not need this tool if you bought your device directly from xteink.com.** Those units are not locked.
+   ```sh
+   pio run -e picco
+   ```
 
-**Not sure if your device is locked?** Power it on, connect the USB-C cable, and try flashing via the web flasher first (see
-[Install firmware](#install-firmware) below). If the browser's serial device picker does not show your device, try a different
-USB port or browser before assuming the device is locked. Only reach for the unlocker if the device still doesn't appear.
+4. Connect the reader by USB, with the reader on its normal screen, and flash:
 
-> ### ⚠️ WARNING: READ THIS BEFORE USING THE UNLOCKER ⚠️
-> 
-> **The only officially supported firmwares in the unlock tool are CrossPoint and CrossInk.**
-> 
-> Flashing any other firmware on a USB-locked device may **permanently brick the device** or leave it **permanently
-> stuck on that firmware with no recovery path**. Once USB flashing is re-locked, your only way back is via OTA, and if
-> the firmware you flashed doesn't support OTA, **there is no way out**.
+   ```sh
+   pio run -e picco -t upload
+   ```
 
-## Install firmware
+The upload writes only the app into the stock `app` slot. The vendor bootloader, NVS and the `safeboot` recovery
+partition are not changed (see [partitions_picco.csv](partitions_picco.csv) and
+[scripts/app_only_upload.py](scripts/app_only_upload.py)). This repository does not document how to go back to the
+stock firmware.
 
-### Web installer (recommended)
+## Screenshots
 
-1. Connect your device to your computer via USB-C and wake/unlock the device
-2. Go to https://crosspointreader.com/#flash-tools, select your device (X3, X4, Xteink X4Pro, Seeed reTerminal Sticky, or M5PaperMono), and choose an official CrossPoint release.
+Coming soon.
 
-### Web installer (specific version)
+## Licence
 
-1. Connect your device to your computer via USB-C and wake/unlock the device
-2. Download the firmware file for your device from [Releases](https://github.com/crosspoint-reader/crosspoint-reader/releases), or compile yourself.
-3. Go to https://crosspointreader.com/#flash-tools, select your device, click "Custom .bin" and upload the firmware file.
+- Upstream CrossPoint Reader code is under the [MIT License](LICENSE).
+- This fork's changes and additions are under the
+  [PolyForm Noncommercial License 1.0.0](LICENSE-FORK.md). You may use, change and share them for noncommercial
+  purposes.
+- For a commercial licence, open an issue in this repository or contact the author through GitHub.
 
-### Revert to Official Firmware
+See [NOTICE.md](NOTICE.md) for the details.
 
-To revert to the official firmware, you can also flash the latest official firmware using https://crosspointreader.com/#flash-tools.
+## Credits
 
-### Command line
+This fork would not exist without the contributors of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)
+and the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk). For upstream features, other devices and how to
+contribute to CrossPoint, see the [upstream README](docs/upstream-README.md).
 
-1. Install [`esptool`](https://github.com/espressif/esptool):
-
-```bash
-pip install esptool
-```
-
-2. Download the firmware file for your device from the [releases page](https://github.com/crosspoint-reader/crosspoint-reader/releases).
-3. Connect your device via USB-C.
-4. Find the device port. On Linux, run `dmesg` after connecting. On macOS:
-
-```bash
-log stream --predicate 'subsystem == "com.apple.iokit"' --info
-```
-
-5. Flash an X3 or X4:
-
-```bash
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-   Flash an Xteink X4Pro, Seeed reTerminal Sticky, or M5PaperMono:
-
-```bash
-esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-### Manual
-
-See [Development quick start](#development-quick-start) below.
-
----
-
-## Custom SD-card fonts
-
-On devices with external RAM enabled in CrossPoint, copy `.ttf`, `.otf`, or `.ttc` files to the SD card and select them as reader fonts. Put one file in `/fonts/` or `/.fonts/`, or put one family's files in a subfolder. See the [SD card font guide](./docs/sd-card-fonts.md) for the folder layout and styles.
-
-On other devices, convert the font to `.cpfont` first. `.cpfont` files also work on devices with external RAM enabled and have better performance. No firmware reflash is needed to add fonts.
-
-To make `.cpfont` files:
-
-1. Go to https://crosspointreader.com/fonts and open the "SD-card font builder" form.
-2. Upload up to four styles (regular, bold, italic, bold-italic), set the family name, point sizes, and Unicode range.
-3. Download the generated `.cpfont` files.
-4. Copy them to your SD card under `/fonts/YourFont/` (or `/.fonts/YourFont/` to hide the folder).
-5. Select the font on the device from the font settings.
-
-Conversion runs the firmware repo's `lib/EpdFont/scripts/fontconvert_sdcard.py` script unmodified, so output matches a local host build.
-
----
-
-## Documentation
-
-- [User Guide](./USER_GUIDE.md)
-- [Web server usage](./docs/webserver.md)
-- [Web server endpoints](./docs/webserver-endpoints.md)
-- [Project scope](./SCOPE.md)
-- [Contributing docs](./docs/contributing/README.md)
-- [Touch and UI development](./docs/contributing/touch-and-ui.md) - how to build new screens on the FreeInkUI activity bases (UiListActivity and friends), plus build envs for the non-Xteink touch devices
-
----
-
-## Development quick start
-
-### Prerequisites
-
-- [pioarduino PlatformIO Core](https://github.com/pioarduino/platformio-core) or [VS Code + pioarduino IDE](https://github.com/pioarduino/pioarduino-vscode-ide)
-- Python 3.8+
-- `clang-format` 21
-- USB-C cable supporting data transfer
-
-### Setup
-
-```bash
-git clone --recursive https://github.com/crosspoint-reader/crosspoint-reader
-cd crosspoint-reader
-
-# if cloned without --recursive:
-git submodule update --init --recursive
-```
-
-### Nix/NixOS
-
-Nix/NixOS users can enter the development shell with either `nix develop` (flakes) or `nix-shell`:
-
-```bash
-nix develop -f nix
-# or
-nix-shell nix
-```
-
-To flash a connected ESP32-C3 device, enable PlatformIO's udev rules in your NixOS configuration:
-
-```nix
-services.udev.packages = with pkgs; [ platformio-core.udev ];
-```
-
-After rebuilding the system configuration, reconnect the device or reload udev rules.
-
-### Build / flash / monitor
-
-```bash
-pio run --target upload
-```
-
-### Contributor pre-PR checks
-
-```bash
-./bin/clang-format-fix
-pio check -e default
-pio run -e default
-```
-
-### Debugging
-
-After flashing the new features, it’s recommended to capture detailed logs from the serial port.
-
-First, make sure all required Python packages are installed:
-
-```python
-python3 -m pip install pyserial colorama matplotlib
-```
-
-After that run the script:
-
-```sh
-# For Linux
-# This was tested on Debian and should work on most Linux systems.
-python3 scripts/debugging_monitor.py
-
-# For macOS
-python3 scripts/debugging_monitor.py /dev/cu.usbmodem2101
-```
-
-Minor adjustments may be required for Windows.
-
----
-
-## Internals
-
-CrossPoint Reader is pretty aggressive about caching data down to the SD card to minimise RAM usage. The ESP32-C3 only has ~380KB of usable RAM, so we have to be careful. A lot of the decisions made in the design of the firmware were based on this constraint.
-
-### Data caching
-
-The first time chapters of a book are loaded, they are cached to the SD card. Subsequent loads are served from the
-cache. This cache directory exists at `.crosspoint` on the SD card. The structure is as follows:
-
-```text
-.crosspoint/
-├── epub_<hash>/         # one directory per book, named by content hash
-│   ├── progress.bin     # reading position (chapter, page, etc.)
-│   ├── cover.bmp        # generated cover image
-│   ├── book.bin         # metadata: title, author, spine, TOC
-│   ├── css_rules.cache  # parsed CSS rule cache
-│   ├── img_*            # rendered image cache files
-│   └── sections/        # per-chapter layout cache
-│       ├── 0.bin
-│       ├── 1.bin
-│       └── ...
-├── settings.json        # device settings
-├── state.json           # resume/runtime state
-└── recent.json          # recent books list
-```
-
-Removing `/.crosspoint` clears all cached metadata and forces a full regeneration on next open. Book deletes, overwrites, and moves done through the firmware or web UI clear or re-key matching caches; manual SD-card edits may leave stale cache directories behind.
-
-For more details on the internal file structures, see the [file formats document](./docs/file-formats.md).
-
----
-
-## Contributing
-
-Contributions are welcome. If you're new to the codebase, start with the [contributing docs](./docs/contributing/README.md). For things to work on, check the [ideas discussion board](https://github.com/crosspoint-reader/crosspoint-reader/discussions/categories/ideas) — leave a comment before starting so we don't duplicate effort.
-
-Everyone here is a volunteer, so please be respectful and patient. For governance and community expectations, see [GOVERNANCE.md](./GOVERNANCE.md).
-
----
-
-## Community forks
-
-One of the best things about open source is that anyone can take the code in a different direction. If you need something outside CrossPoint's [scope](./SCOPE.md), check out the community forks:
-
-- [CrossInk](https://github.com/uxjulia/CrossInk) — UX focused with minimal reading stats and broader customizations for the reading experience.
-
-- [papyrix-reader](https://github.com/bigbag/papyrix-reader) — Adds FB2 and MD format support. Actively maintained with Arabic script support. Custom themes.
-
-- [inx](https://github.com/obijuankenobiii/inx) — Completely reimagines the user interface with tabbed navigation.
-
-- [Witch(hunt) Reader](https://github.com/jpirnay/witchhunt-reader) — More faithful CSS styling and background work for slightly snappier interaction. Weather information panel. Markdown support.
-
-**Note:** Many of these features will make their way into CrossPoint over time. Each project chooses its own priorities and tradeoffs.
-
-Want to build your own device? Be sure to check out the [Silkscreen](https://silkscreenreader.com) project or [OnePage Reader](https://github.com/MoveCall/onepage-reader).
-
----
-
-CrossPoint Reader is **not affiliated with Xteink or any device manufacturer**.
+This project is not affiliated with the device maker.

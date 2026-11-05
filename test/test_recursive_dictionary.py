@@ -57,8 +57,8 @@ back_handler = "  int sx = 0;" + back_handler
 lookup_source = (ROOT / "src/activities/reader/DictionaryWordSelectActivity.cpp").read_text()
 definition_result = block(lookup_source, "[this](const ActivityResult& result)")
 reader_source = (ROOT / "src/activities/reader/EpubReaderActivity.cpp").read_text()
-lookup_result = block(reader_source.split("startActivityForResult(std::move(lookup)", 1)[1],
-                      "[this](const ActivityResult& result)")
+# The reader's handler for the lookup activity: the lambda passed with it, whatever its captures.
+lookup_result = block(reader_source.split("startActivityForResult(std::move(lookup), ", 1)[1], "[")
 reader_constants = (ROOT / "src/activities/reader/ReaderUtils.h").read_text().split("namespace ReaderUtils {", 1)[1].split(
     "constexpr unsigned long SKIP_HOLD_MS", 1
 )[0]
@@ -71,6 +71,7 @@ harness = r'''
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -186,6 +187,7 @@ struct Dictionary {
   std::string lastQuery;
 };
 struct ClipSelectionActivity {
+  enum class Mode { Clip, Lookup, DefinitionLookup };
 ''' + selection + r'''
   template<typename... Args> explicit ClipSelectionActivity(Args&&...) {}
 };
@@ -220,9 +222,31 @@ struct DictionaryDefinitionActivity {
   void finish() { finished = true; }
   void setResult(ActivityResult&& next) { result = std::move(next); }
   void openDictionaryWordSelect() { selectionOpened = true; }
+  // Reader state the lookup handler touches (EpubReaderActivity).
+  struct Section {
+    uint16_t currentPage = 0, pageCount = 10;
+    uint32_t getVisibleTextOffsetForPage(uint16_t page) const { return page * 100u; }
+  } sectionData;
+  Section* section = &sectionData;
+  std::optional<uint32_t> currentPageVisibleOffset;
+  ClipSelectionActivity::Mode clipMode = ClipSelectionActivity::Mode::Clip;
+  ClipSelectionActivity::Selection preselected;
+  void startClipSelection(int, int, ClipSelectionActivity::Mode mode,
+                          const ClipSelectionActivity::Selection* preselect = nullptr) {
+    selectionOpened = true;
+    clipMode = mode;
+    if (preselect) preselected = *preselect;
+  }
   void handleBack() { ''' + back_handler + r''' }
   void onDefinitionResult(const ActivityResult& child) { (''' + definition_result + r''')(child); }
-  void onLookupResult(const ActivityResult& child) { (''' + lookup_result + r''')(child); }
+  // Selection on pages 3..4, words 2..5, captured as in startClipSelection's result handler.
+  void onLookupResult(const ActivityResult& child) {
+    uint16_t startPage = 3, endPage = 4;  // Not const: the production lambda captures them.
+    ClippingResult clipping;
+    clipping.startWordIndex = 2;
+    clipping.endWordIndex = 5;
+    (''' + lookup_result + r''')(child);
+  }
   void startActivityForResult(std::unique_ptr<ClipSelectionActivity> next, ActivityResultHandler handler) {
     child = std::move(next);
     callback = std::move(handler);
@@ -412,7 +436,21 @@ int main() {
   parent.handleBack();
   assert(parent.finished && !parent.result.isCancelled);
   reader.onLookupResult(parent.result);
-  assert(reader.selectionOpened);
+  assert(!reader.selectionOpened);  // A finished lookup returns to the book.
+  // Under the touch lock the definition sheet sends the reader back to word selection.
+  DictionaryDefinitionActivity anotherWord, moreActions, cancelledFollowUp;
+  anotherWord.onLookupResult(LookupFollowUpResult{LookupFollowUpResult::Kind::AnotherWord});
+  assert(anotherWord.selectionOpened && anotherWord.clipMode == ClipSelectionActivity::Mode::Lookup);
+  assert(!anotherWord.preselected.valid && anotherWord.section->currentPage == 0);
+  moreActions.onLookupResult(LookupFollowUpResult{LookupFollowUpResult::Kind::MoreActions});
+  assert(moreActions.selectionOpened && moreActions.clipMode == ClipSelectionActivity::Mode::Lookup);
+  const auto& again = moreActions.preselected;
+  assert(again.valid && again.firstPage == 0 && again.lastPage == 1 && again.firstWord == 2 && again.lastWord == 5);
+  assert(moreActions.section->currentPage == 3 && moreActions.currentPageVisibleOffset == 300u);
+  ActivityResult cancelledResult{LookupFollowUpResult{}};
+  cancelledResult.isCancelled = true;
+  cancelledFollowUp.onLookupResult(cancelledResult);
+  assert(!cancelledFollowUp.selectionOpened);
   // Long Back also exits at the first definition, where there are no ancestors.
   DictionaryDefinitionActivity root;
   root.lookup = std::make_unique<DictionaryDefinitionActivity::LookupState>(dictionary);

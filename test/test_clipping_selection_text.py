@@ -10,7 +10,8 @@ reader_source = (ROOT / "src/activities/reader/EpubReaderActivity.cpp").read_tex
 header = (ROOT / "src/activities/reader/ClipSelectionActivity.h").read_text()
 word_box = "struct WordBox {" + header.split("struct WordBox {", 1)[1].split("  };", 1)[0] + "};"
 action_helpers = "\n".join(line for line in header.splitlines()
-                           if "int firstAction() const" in line or "int actionCount() const" in line)
+                           if any(helper in line for helper in ("int firstAction() const", "int actionCount() const",
+                                                                "bool lookupMenu() const")))
 clean_word = "const char* cleanWordStart" + source.split("const char* cleanWordStart", 1)[1].split(
     "}  // namespace", 1
 )[0]
@@ -25,11 +26,12 @@ memory_guard = "  const auto heap = HalMemory::getDefaultHeap();" + confirm_sour
 def method(name, next_name, text=source):
     signature = text.index(name)
     start = text.rfind("\n", 0, signature) + 1
-    return text[start:text.index(next_name, signature)].rstrip()
+    # Newline-terminated: a trailing comment before next_name must not swallow the next extract.
+    return text[start:text.index(next_name, signature)].rstrip() + "\n"
 
 extract_words = method("bool ClipSelectionActivity::extractWords", "int ClipSelectionActivity::closestInRow")
 clean_draw = method("void ClipSelectionActivity::drawWordClean", "void ClipSelectionActivity::drawWordHighlight")
-highlight_draw = method("void ClipSelectionActivity::drawWordHighlight", "bool ClipSelectionActivity::renderIncremental")
+highlight_draw = method("void ClipSelectionActivity::drawWordHighlight", "void ClipSelectionActivity::drawModeBand")
 selection_draw = method("void ClipSelectionActivity::drawSelection", "void ClipSelectionActivity::render(")
 word_font = method("int clippingWordFont", "Rect clippingWordRect", reader_source)
 word_rect = method("Rect clippingWordRect", "int clampPercent", reader_source)
@@ -215,6 +217,7 @@ struct ClipSelectionActivity {
   void drawWordClean(int, int, int) const;
   void drawWordHighlight(int, int, int, int, int) const;
   void drawSelection() const;
+  void drawLookupActions() const {}
   void prewarmWord(int) const {}
   void clearGapBetween(const WordBox&, const WordBox&, int, int) const {}
   void ditherGapBetween(const WordBox&, const WordBox&, int, int) const {}
@@ -309,6 +312,13 @@ int main() {
   assert(!selectionLowMemory(0, 0));
   assert(!selectionLowMemory(0, 239));
   ClipSelectionActivity activity;
+  // Dictionary mode from the reader: two-page menu of three buttons.
+  activity.mode = ClipSelectionActivity::Mode::Lookup;
+  assert(activity.lookupMenu() && activity.actionCount() == 3);
+  activity.lookupAvailable = false;
+  assert(!activity.lookupMenu() && activity.actionCount() == 2);
+  activity.mode = ClipSelectionActivity::Mode::Clip;
+  activity.lookupAvailable = true;
   for (const int8_t tracking : {2, -2}) {
     auto page = std::make_unique<Page>();
     for (int i = 0; i < 2; ++i) {

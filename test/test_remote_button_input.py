@@ -33,13 +33,18 @@ struct HalGPIO {
   bool wasHomeKeyTapped() const { return false; }
   bool wasHomeKeyLongPressed() const { return false; }
   bool wasHomeKeyPressed() const { return false; }
+  bool wasTouchDown(float&, float&) const { return false; }
+  void suppressTouchContact() {}
 };
 """
 harness = r"""
 #include <cassert>
+unsigned long millis();  // Used inline by MappedInputManager.h.
 #include "MappedInputManager.h"
 class GfxRenderer {};
 unsigned long millis() { return 1000; }
+bool slideSwitchLocksTouch() { return false; }
+void MappedInputManager::updateButtonChords() const {}  // Button chords are out of scope here.
 constexpr unsigned long TOUCH_HELD_OVERRIDE_WINDOW_MS = 250;
 struct CrossPointSettings {
   enum { VIBRATION_OFF, VIBRATION_TOUCH_PAGE };

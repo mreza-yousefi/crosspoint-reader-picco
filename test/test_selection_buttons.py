@@ -114,8 +114,12 @@ popup_harness = r"""
 #include <functional>
 #include <vector>
 struct RenderLock { ~RenderLock() {} };
-struct Input { bool touch = false, back = false, confirm = false, outsideTap = false;
+bool lookupPausesTouchLock = false;  // Up-hold lookup under the touch lock (util/SlideSwitch.h).
+struct MappedInputManager { enum class Button { Down }; };
+struct Input { bool touch = false, back = false, confirm = false, outsideTap = false, downHeld = false, downReleased = false;
   bool hasTouch() const { return touch; }
+  bool isPressed(MappedInputManager::Button) const { return downHeld; }
+  bool wasReleased(MappedInputManager::Button) const { return downReleased; }
 };
 struct Popup {
   static constexpr int MAX_OPTIONS = 16;
@@ -132,6 +136,8 @@ struct Popup {
   }
 };
 struct ClipSelectionActivity {
+  enum class Mode { Clip, Lookup, DefinitionLookup };
+  Mode mode = Mode::Clip;
   size_t wordCount = 0;  // extractWords() could not allocate its array.
   Popup actionPopup;
   Input mappedInput;
@@ -171,6 +177,25 @@ int main() {
   usable.mappedInput.back = false;
   usable.loop();
   assert(usable.cancellations == 0);
+  // Under the touch lock the side Down button backs out of dictionary mode.
+  ClipSelectionActivity locked;
+  locked.wordCount = 1;
+  locked.actionPopup.active = false;
+  locked.mode = ClipSelectionActivity::Mode::Lookup;
+  locked.mappedInput.touch = true;
+  locked.mappedInput.downHeld = true;
+  locked.loop();
+  assert(locked.cancellations == 0);  // Held only: no cancel yet.
+  lookupPausesTouchLock = true;
+  locked.loop();
+  assert(locked.cancellations == 0);
+  locked.mappedInput.downHeld = false;
+  locked.mappedInput.downReleased = true;
+  locked.loop();
+  assert(locked.cancellations == 1);
+  locked.mode = ClipSelectionActivity::Mode::Clip;  // Clip mode keeps Down for navigation.
+  locked.loop();
+  assert(locked.cancellations == 1);
 }
 """
 with tempfile.TemporaryDirectory() as directory:

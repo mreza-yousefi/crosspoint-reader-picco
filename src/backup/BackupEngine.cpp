@@ -110,8 +110,8 @@ bool wantFile(const std::string& dir, const std::string& name) {
   if (startsWith(name, "._") || name == ".DS_Store" || endsWith(name, ".part") || endsWith(name, ".tmp")) return false;
   if (name.find_first_of("\t\n") != std::string::npos) return false;  // manifest is TSV
   if (dir == "/.crosspoint") {
-    // State only; credential stores (wifi, koreader, opds tokens) stay on the device.
-    return name == "settings.json" || name == "state.json" || name == "recent.json" || name == "opds.json";
+    // State only; credential stores (wifi, koreader, opds servers and tokens) stay on the device.
+    return name == "settings.json" || name == "state.json" || name == "recent.json";
   }
   if (startsWith(dir, "/.crosspoint/epub_") || startsWith(dir, "/.crosspoint/xtc_")) return name == "progress.bin";
   return true;

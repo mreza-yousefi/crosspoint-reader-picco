@@ -35,6 +35,7 @@ Details: [docs/dictionary.md](dictionary.md).
 - Warmth reads Off, 1-99%, Full (Off = cool light only, Full = warm light only). On the BOOX Picco there is no colour jump inside 1-99% at any brightness; the only visible step is into Off or Full. Fix merged upstream: Free-Ink/freeink-sdk#172.
 - Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`; reported as Free-Ink/freeink-sdk#167, since fixed in the upstream SDK as well).
 - Brightness/warmth greyed out while the light is off; lamp button reliably turns it on.
+- Wake with light: hold Down while pressing Power to wake; the light comes on at the saved brightness/warmth, with no screenshot or page turn; the light panel opens with a note so the light can be adjusted (not when the slide switch is set to Frontlight).
 
 ## Per-book text settings
 Details: [USER_GUIDE.md section 3.6.2](../USER_GUIDE.md#362-reader).

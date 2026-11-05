@@ -82,6 +82,12 @@ constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 300;
 // A wake hold must never become an in-app power-button action.  Boot may continue
 // while the button is held; swallow the one release that ends that wake gesture.
 static bool wakePowerReleasePending = false;
+// Woken with Power while Down was held: the light came on with the wake, and
+// these presses must not also take a screenshot (Power + Down) or turn a page.
+static bool wakeLightChordHeld = false;
+// Woke that way with the light switched on: the light panel opens, with a note,
+// on any screen and with or without the touch lock (Picco wake panel below).
+static bool wokeWithLight = false;
 
 // Fonts
 EpdFont notosans14RegularFont(&notosans_14_regular);
@@ -765,10 +771,16 @@ void setup() {
   // reboots replay the live state captured at restart, so they neither go dark
   // nor light up against the user's wake preference. A slide switch bound to
   // the light decides it from its position instead.
-  const bool restoreLightOn = isSilentReboot ? silentRebootLightOn
-                              : slideSwitchOwnsLight()
-                                  ? gpio.isToggleSwitchOn()
-                                  : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
+  // Holding Down while waking with Power turns the light on, at the saved
+  // brightness and warmth, for waking in the dark. Not where Down + Power at
+  // wake is the recovery-firmware gesture (X4 Pro, X4 Classic).
+  wakeLightChordHeld = isSleepWake && !recoveryFirmwareMode && gpio.isPressed(HalGPIO::BTN_DOWN);
+  wokeWithLight = wakeLightChordHeld && !slideSwitchOwnsLight();
+  const bool restoreLightOn =
+      isSilentReboot ? silentRebootLightOn
+      : slideSwitchOwnsLight()
+          ? gpio.isToggleSwitchOn()
+          : (wakeLightChordHeld || (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0));
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
 
   switch (wakeupReason) {
@@ -965,7 +977,8 @@ void loop() {
   // After the exclusive-storage return: it saves settings to the SD card.
   handleSlideSwitch();
 #if FREEINK_DEVICE_PICCO
-  // Decided once, when the wake screen is up: only a book under the touch lock.
+  // Decided once, when the wake screen is up: a book under the touch lock, or
+  // any screen after a wake with the light (Down + Power).
   // The open panel pauses the lock; tapping below it closes it and re-locks.
   // Waits for the book's first page so the sheet opens over it, not over a
   // blank frame; gives up after a few seconds (a slow book just skips it).
@@ -973,15 +986,16 @@ void loop() {
     static unsigned long screenReadyAt = 0;
     const bool reader = activityManager.isReaderActivity();
     const bool shown = (!reader || activityManager.getScreenshotInfo().totalPages > 0) && !RenderLock::peek();
-    if (!slideSwitchTouchLockEngaged() || (reader && !Frontlight.present()) || millis() > WAKE_PANEL_GIVE_UP_MS) {
+    if ((!slideSwitchTouchLockEngaged() && !wokeWithLight) || ((reader || wokeWithLight) && !Frontlight.present()) ||
+        millis() > WAKE_PANEL_GIVE_UP_MS) {
       wakeLightPanelPending = false;
     } else if (shown && screenReadyAt == 0) {
       screenReadyAt = millis();
     } else if (shown && millis() - screenReadyAt >= WAKE_PANEL_SETTLE_MS) {
       wakeLightPanelPending = false;
-      if (reader) {
+      if (reader || wokeWithLight) {
         auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager);
-        panel->setNotice(tr(STR_LIGHT_CHECK));
+        panel->setNotice(wokeWithLight ? tr(STR_WOKE_WITH_LIGHT) : tr(STR_LIGHT_CHECK));
         activityManager.pushActivity(std::move(panel));
       } else {
         // Woke to Home under the lock: a short note, cleared by Home's repaint.
@@ -1053,6 +1067,11 @@ void loop() {
   if (wakePowerReleasePending && !gpio.isPressed(HalGPIO::BTN_POWER)) {
     wakePowerReleasePending = false;
     return;
+  }
+
+  if (wakeLightChordHeld) {
+    if (!gpio.isPressed(HalGPIO::BTN_POWER) && !gpio.isPressed(HalGPIO::BTN_DOWN)) wakeLightChordHeld = false;
+    return;  // the wake chord's presses and releases never reach the screens
   }
 
   static bool screenshotButtonsReleased = true;

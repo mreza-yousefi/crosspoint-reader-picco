@@ -44,6 +44,7 @@ Details: [User Guide, Control Center and Frontlight](USER_GUIDE.md#control-cente
 - Warmth reads Off, 1-99%, Full, with no colour jump inside 1-99%.
 - A Home button in the light panel. It takes the place of the Bluetooth button; Bluetooth stays in Settings.
 - Brightness and warmth are greyed out while the light is off.
+- Hold Down while pressing Power to wake with the light on, for reading in the dark.
 
 ### Home Backup
 

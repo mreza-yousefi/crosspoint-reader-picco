@@ -15,13 +15,13 @@ Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
 | Change book under the lock | Up + Down, then the house icon in the light panel goes to Home; pick a book with the buttons |
 | Dictionary under the lock | Hold Up 0.2 s on a book page, tap a word: definition at once (no menu); Down backs out; short Up turns back on release |
 | Unlock from Home | Hold Up 0.2 s on Home; ends on opening a book, holding Down, moving the switch, sleep, 2 min idle |
-| Wake status | Waking into a book: light panel with "Touch locked · light check"; waking to Home: "Touch locked" note |
+| Wake status | Waking into a book: light panel with "Touch locked · light check - tap below to read"; waking to Home: "Touch locked" note |
 | Shortcut safety | A shortcut's buttons never also turn a page; a page turned by a not-quite-simultaneous press is undone; no sleep while a shortcut is held |
 
 ## Dictionary
 Details: [docs/dictionary.md](dictionary.md).
 
-- Kindle-style definition sheet over the lower 60% of the screen; swipe or side buttons page, tap above closes.
+- Definition sheet over the lower 60% of the screen, with the book page visible above; swipe or side buttons page, tap above closes.
 - Dictionary-mode menu: Look Up / Another word / + (then Clip / Bookmark / <). Under the lock no menu: the word is looked up on release, and the definition offers Another word / + above the sheet.
 - Less sensitive word selection in dictionary mode; returns to the book after a lookup.
 - Same large buttons in every selection menu; Look Up turns black with "Looking Up..." while it works.
@@ -31,29 +31,29 @@ Details: [docs/dictionary.md](dictionary.md).
 - Persian definitions: add Persian glyphs to your reading font with `scripts/merge_persian_font.py`.
 
 ## Light
-- Light panel quick controls: night mode, refresh, orientation, touch, Home (replaces the Bluetooth tile; Bluetooth stays in Settings).
-- Warmth reads Off, 1-99%, Full (Off = cool light only, Full = warm light only). On the Picco there is no colour jump inside 1-99% at any brightness; the one visible step sits at these ends.
-- Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`, upstream report Free-Ink/freeink-sdk#167).
+- Light panel: a Home tile replaces the Bluetooth tile (Bluetooth stays in Settings). Under the touch lock, open the panel with Up + Down and tap Home to change books.
+- Warmth reads Off, 1-99%, Full (Off = cool light only, Full = warm light only). On the BOOX Picco there is no colour jump inside 1-99% at any brightness; the only visible step is into Off or Full. Fix merged upstream: Free-Ink/freeink-sdk#172.
+- Smooth brightness and warmth steps using all ten vendor levels (`freeink-sdk` branch `picco-custom`; reported as Free-Ink/freeink-sdk#167, since fixed in the upstream SDK as well).
 - Brightness/warmth greyed out while the light is off; lamp button reliably turns it on.
 
 ## Per-book text settings
 Details: [USER_GUIDE.md section 3.6.2](../USER_GUIDE.md#362-reader).
 
-- Each book keeps its own Text Settings (font, size, spacing, indent, alignment, margin, style toggles) in `/.crosspoint/book-settings/<KOReader document id>.json`; the id hashes the book's content, so renaming or moving the book keeps them, and the book file is never changed.
+- Each EPUB book keeps its own Text Settings (font, size, spacing, indent, alignment, margin, style toggles) in `/.crosspoint/book-settings/<KOReader document id>.json`; the id hashes the book's content, so renaming or moving the book keeps them, and the book file is never changed.
 - A new book starts from the last-used values; Text Settings opened from Settings with no book open set those values for books not opened yet.
-- Text Settings -> Layout -> Reset Text Settings (book open only) restores the factory values for this book.
-- Kept by Clear Reading Cache; included in Home Backup.
+- Text Settings → Layout → Reset Text Settings (book open only) restores the factory values for this book.
+- Clear Reading Cache does not delete them; Home Backup includes them.
 
 ## Reader
 - EPUB book position `~page/~total` in the top-right page margin, left of the padlock; estimated from the current chapter's pages and its share of the book size. Shown with Book Progress Percentage on and a screen margin (set per book) of 20 px or more; hidden in chapters under 3 pages or under 300 bytes per page ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
 
 ## Sleep screen
-- Strip with "Battery at sleep N%" and "· Book N%" (or "Charging N%" on USB).
+- Strip with "Battery at sleep N%" and "· Book N%". On USB power the first part reads "Charging N%" or "Charged N%".
 
 ## Home Backup
 Details: [USER_GUIDE.md section 3.6.8](../USER_GUIDE.md#368-home-backup-fork) and [docs/home-backup.md](home-backup.md).
 
-- Incremental backup to a WebDAV server (manual, on sleep, while charging; daily), fetches books from `/to-reader/`.
+- Incremental backup to a WebDAV server (on request, or once a day at sleep; up to 60 s on battery, 15 min on USB power), fetches books from `/to-reader/`.
 - No server details compiled in: enter URL and login on the reader; for HTTPS put the server certificate at `/.crosspoint/backup-ca.pem`.
 
 ## Build and flashing

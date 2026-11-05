@@ -58,7 +58,16 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 
 ## The Definition Screen
 
-**This fork:** under the touch lock a selected word is looked up when you lift your finger (no menu); **Another word** and **+** above the definition return to word selection. Definitions open as a sheet over the lower part of the screen with the book page still visible above. Swipe left/right (or use the side buttons) to page; a tap above the sheet (outside those buttons) closes the lookup and returns to the book. After a lookup, including "not found", the reader returns to the book rather than to word selection (unless you tap Another word or + under the lock). Tapping **Look Up**, **Clip** or **Bookmark** in the selection menu shows a pressed state first (Look Up reads "Looking Up..."). The sheet appears with a clean refresh, so the pressed button leaves no trace. The light panel can be pulled down over the sheet; tap the sheet below it to close it, and the page above the sheet comes back. (Not during a lookup started under the touch lock.)
+**This fork:**
+
+- Definitions open as a sheet over the lower part of the screen. The book page stays visible above it.
+- Swipe left or right, or use the side buttons, to page. Tap above the sheet to close the lookup.
+- After a lookup, also when a word is not found, the reader goes back to the book, not to word selection.
+- Under the touch lock there is no menu: a word is looked up when you lift your finger. **Another word** and **+**
+  above the sheet go back to word selection. See [User Guide, Controls](../USER_GUIDE.md#363-controls).
+- **Look Up**, **Clip** and **Bookmark** show a pressed state when tapped (Look Up reads "Looking Up...").
+- You can pull the light panel down over the sheet. Tap the sheet below it to close the panel. This does not
+  work during a lookup started under the touch lock.
 
 **Lookup history (this fork):** each successful lookup appends a tab-separated line to `/vocabulary/lookups.tsv` on the SD card: `date`, `word` (as selected), `headword`, `book` (file name) and the first ~160 characters of the definition as plain text. The file opens in a spreadsheet; delete it to start a new list.
 
@@ -92,7 +101,7 @@ The screen also closes if a failed forward lookup cannot reload the current defi
 
 ## Persian (and other Arabic-script) definitions
 
-Definitions are drawn in the reading font, so a Latin-only font shows `?` for Persian. Instead of switching your reading font, add the Persian glyphs to it with `scripts/merge_persian_font.py` (Latin glyphs are unchanged, so books look the same), copy the result to `/fonts/<Family>Fa/`, restart, and pick it under **Settings → Reader → Text Settings**. The script takes TTF files; for a downloaded `.cpfont` family, start from the font's original TTF release. For speed, convert the merged TTFs to `.cpfont` (pre-rendered glyphs draw much faster than TTF on the device):
+Definitions are drawn in the reading font, so a Latin-only font shows `?` for Persian. Instead of switching your reading font, add the Persian glyphs to it with `scripts/merge_persian_font.py` (Latin glyphs are unchanged, so books look the same), copy the result to `/fonts/<Family>Fa/`, restart, open the book, and pick the font in **Text Settings** from the Reader Menu (Text Settings are saved per book). The script takes TTF files; for a downloaded `.cpfont` family, start from the font's original TTF release. For speed, convert the merged TTFs to `.cpfont` (pre-rendered glyphs draw much faster than TTF on the device):
 
     python3 lib/EpdFont/scripts/fontconvert_sdcard.py --regular LiterataFa-Regular.ttf --bold LiterataFa-Bold.ttf \
       --italic LiterataFa-Italic.ttf --bolditalic LiterataFa-BoldItalic.ttf \

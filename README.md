@@ -3,7 +3,7 @@
 CrossPoint Picco is a fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) for the
 BOOX Picco. It is a personal project. It is built on CrossPoint Reader and the
 [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk), and keeps their reading engine, file formats and most of
-their features. This fork refines some of them and adds features for daily reading on the Picco. It is not the
+their features. This fork refines some of them and adds features for daily reading on the BOOX Picco. It is not the
 official CrossPoint Reader.
 
 ## What this fork adds
@@ -16,10 +16,12 @@ Details: [User Guide, Controls](USER_GUIDE.md#363-controls).
 
 - The slide switch is a touch lock toggle (setting **Slide Switch: Touch Reader Controls**). Touch is ignored, the
   side buttons still turn pages, and the lock stays on through sleep.
+- In the light panel, the touch tile (pointer icon) turns the lock on or off. Locking closes the panel.
 - A padlock shows the lock in the top bar and in the top-right corner of the book page.
 - Up + Down opens the light panel while touch is locked. Its Home button lets you change the book.
 - Power + Up gives a full screen refresh while touch is locked.
-- Hold Up on Home to unlock touch for a short time.
+- Hold Up on Home to unlock touch. The lock comes back when you open a book, hold Down, move the switch, or leave
+  the reader unused for 2 minutes.
 - Waking into a book with the lock on shows the light panel first, so a light left on is easy to notice.
 - A button shortcut never also turns a page.
 
@@ -29,7 +31,7 @@ Details: [docs/dictionary.md](docs/dictionary.md#the-definition-screen).
 
 - Definitions open as a sheet over the lower part of the screen. The book page stays visible above it.
 - With touch locked, hold Up on a book page and tap a word. The definition opens at once, without a menu.
-- A simpler selection menu (Look Up, Another word, +). After a lookup the reader returns to the book.
+- The selection menu is simpler: Look Up, Another word and +. After a lookup, the reader goes back to the book.
 - Each lookup is added to a list in `/vocabulary/lookups.tsv`.
 - Persian definitions: add Persian letters to your reading font with a script
   ([how](docs/dictionary.md#persian-and-other-arabic-script-definitions)).
@@ -55,17 +57,21 @@ Details: [User Guide, Home Backup](USER_GUIDE.md#368-home-backup-fork) and [docs
 
 ### Reading
 
-- Per-book reading settings: font and layout are saved for each book. A book is recognised by its content, so the
-  settings stay when you rename or move the file. Home Backup includes them. A **Reset to default layout** action
-  is available.
-- The position in the book, `~page/~total`, shows in the top-right page margin next to the padlock. It is an
-  estimate. It shows when Book Progress Percentage is on and the screen margin is 20 or more.
+Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
+
+- Per-book Text Settings (EPUB): font, size, layout and style are saved for each book. A book is recognised by
+  its content, so the settings stay when you rename or move the file. Home Backup includes them.
+  **Text Settings → Layout → Reset Text Settings** sets the book back to the default values.
+- The position in the whole book, `~page/~total`, shows in the top-right page margin, next to the padlock. It is
+  an estimate. It shows when **Book Progress Percentage** is on (Settings → Reader → Customise Status Bar) and
+  the book's screen margin is 20 or more.
 
 ### Sleep screen
 
 Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).
 
-- A strip shows the battery level at sleep and the progress in the open book, or the charging state on USB.
+- A strip shows the battery level at sleep and the progress in the open book. On USB power it shows the charging
+  state in place of the battery level.
 
 ### Other
 
@@ -74,7 +80,7 @@ Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).
 
 ## Contributions upstream
 
-- The Picco warmth fix was merged into the FreeInk SDK
+- The BOOX Picco warmth fix (no colour jump inside 1-99%) was merged into the FreeInk SDK
   ([Free-Ink/freeink-sdk#172](https://github.com/Free-Ink/freeink-sdk/pull/172)).
 
 ## Install
@@ -97,7 +103,8 @@ stock firmware on your reader. Do this at your own risk. There is no warranty.
    pio run -e picco
    ```
 
-4. Connect the reader by USB, with the reader on its normal screen, and flash:
+4. Switch the reader on and leave it on a normal screen, such as Home (not USB Drive mode). Connect it by USB and
+   flash:
 
    ```sh
    pio run -e picco -t upload

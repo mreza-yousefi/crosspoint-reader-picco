@@ -75,10 +75,10 @@ Alternatively, while reading a book, press the **Confirm** button to open the re
 
 ### Control Center and Frontlight
 
-The Control Center is available on all touch devices. Devices with a frontlight also show light controls. The X4 Pro has adjustable brightness and warmth; the Paper Mono has adjustable brightness only.
+The Control Center is available on all touch devices. Devices with a frontlight also show light controls. The X4 Pro and the BOOX Picco have adjustable brightness and warmth; the Paper Mono has adjustable brightness only. This fork's docs call this panel the light panel.
 
 * **Open the panel:** Swipe down from the top edge of the screen, from almost any screen (Home, Browse Files, Reading Mode, etc.). You can also tap the status bar on Home, Browse Files, or Settings. On devices with a frontlight, drag the brightness slider (and the warmth slider, where available) to adjust the light live, or tap the sun icon to turn it on or off.
-* **Quick controls:** The panel has one row of icons: moon for night mode, circular arrows to refresh the screen, an underlined **T** to cycle reading direction, and the Settings Controls pointer to toggle reader touch controls. **This fork:** a fifth button, a house, goes to Home; with the touch lock on, open the panel with Up + Down and tap it to change books; on Home, use the buttons (or hold Up to unlock touch). The Bluetooth page turner is in **Settings → Connectivity**. The **T** rotates with the selected direction. A filled toggle means enabled; an outlined toggle means disabled. Refresh, direction and Home always have outlines. Turning reader touch controls off leaves the panel usable, unless the slide switch is set to Touch Reader Controls: then the tile is the touch lock, and locking closes the panel.
+* **Quick controls:** The panel has one row of icons: moon for night mode, circular arrows to refresh the screen, an underlined **T** to cycle reading direction, and the Settings Controls pointer to toggle reader touch controls. **This fork:** a fifth button, a house, opens Home. It replaces the Bluetooth button; the Bluetooth page turner is in **Settings → Connectivity**. With the touch lock on, press Up + Down to open the panel, then tap the house to change books. On Home, choose a book with the buttons, or hold Up to unlock touch. The **T** rotates with the selected direction. A filled toggle means enabled; an outlined toggle means disabled. Refresh, direction and Home always have outlines. Turning reader touch controls off leaves the panel usable, unless the slide switch is set to Touch Reader Controls: then the tile is the touch lock, and locking closes the panel.
 * **Warmth readout (this fork):** on devices with warmth the readout goes **Off**, 1–99%, **Full**. Off is cool light only and Full is warm light only, the warmest the light can go. On the BOOX Picco both LEDs stay on between 1 and 99%, so the colour changes smoothly at every brightness; the only visible step is into Off or Full.
 * **Quick toggle (X4 Pro only):** Double-click the **Power** button to turn the frontlight on or off instantly, without opening the panel.
 
@@ -247,7 +247,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "Book Bar Only" - Show book progress (as bar)
   - "Full w/ Chapter Bar" - Show status bar with chapter progress (as bar)
 
-- **Book position (EPUB, this fork)**: the top-right corner of the page shows your position in the whole book as `~143/~312` (page in book / pages in book), left of the touch-lock padlock. Both numbers are estimates: they are scaled from the current chapter's page count and its size in the book, so they can change a little when a new chapter starts. The bottom status bar still shows the page within the chapter. The position is shown when **Settings → Reader → Customise Status Bar → Book Progress Percentage** is on, and only when the screen margin leaves room above the text (about 20 pixels or more); otherwise it is hidden. **Screen Margin** is set per book in **Text Settings → Layout**, so the position may show in one book and not in another. It is also hidden in chapters too short to estimate from: chapters under 3 pages (cover, title pages) and chapters with very little text per page (mostly pictures).
+- **Book position (EPUB, this fork)**: the top-right corner of the page shows your position in the whole book as `~143/~312` (page in book / pages in book), left of the place where the touch-lock padlock appears. Both numbers are estimates: they are scaled from the current chapter's page count and its size in the book, so they can change a little when a new chapter starts. The bottom status bar still shows the page within the chapter. The position is shown when **Settings → Reader → Customise Status Bar → Book Progress Percentage** is on, and only when the screen margin leaves room above the text (about 20 pixels or more); otherwise it is hidden. **Screen Margin** is set per book in **Text Settings → Layout**, so the position may show in one book and not in another. It is also hidden in chapters too short to estimate from: chapters under 3 pages (cover, title pages) and chapters with very little text per page (mostly pictures).
 
 - **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
   
@@ -271,7 +271,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
 
 #### 3.6.2 Reader
 
-**Per-book text settings (fork).** Each book keeps its own text settings: font family and size, line, word and character spacing, extra paragraph spacing, paragraph indentation, alignment, screen margin, focus reading, hyphenation, embedded style and text anti-aliasing. Other reader settings (such as Images and Reading Orientation) stay global.
+**Per-book text settings (this fork).** Each EPUB book keeps its own text settings: font family and size, line, word and character spacing, extra paragraph spacing, paragraph indentation, alignment, screen margin, focus reading, hyphenation, embedded style and text anti-aliasing. Other reader settings (such as Images and Reading Orientation) stay global.
 
 - Changes made in **Text Settings** from the Reader Menu, or in the **Text** panel of the reader toolbar, apply to the open book only. The values are saved for that book and are used again every time you open it.
 - **Settings → Reader → Text Settings**, with no book open, sets the values for books you have not opened yet. A book you open for the first time starts with the last values used: those of the last book you opened, or those set here afterwards with no book open.
@@ -356,13 +356,13 @@ The Reader settings are:
 - **Light panel (this fork)**: while the frontlight is off, the brightness and warmth controls are greyed out and inactive; turn the light on with the lamp button first.
 
 - **Light panel under the touch lock (BOOX Picco, this fork)**: while the touch lock is on, press the **Up and Down side buttons together** to open the light panel (brightness and warmth). Touch works inside the panel while it is open; close it (tap below it, swipe up, or Up+Down again) and the lock is active again. The two presses never turn a page; if they were not quite simultaneous and the first one already turned a page, that turn is undone. Without the lock, swipe down from the top as usual.
-  - When the reader wakes straight into a book with the touch lock on, the light panel slides down over the page first, marked "Touch locked · light check", so a light left on is easy to notice. Waking to Home with the lock on shows a short "Touch locked" note instead. Tap below it to close it; the lock is active again.
+  - When the reader wakes straight into a book with the touch lock on, the light panel slides down over the page first, marked "Touch locked · light check - tap below to read", so a light left on is easy to notice. Waking to Home with the lock on shows a short "Touch locked" note instead. Tap below it to close it; the lock is active again.
 
 - **Touch lock indicator (this fork)**: while the touch lock is engaged, a small padlock appears in the middle of the top bar (Home, settings), and in the top-right corner of the book page. While the lock is overridden from Home (see below), the padlock in the top bar is shown open.
 
 - **Unlock touch from Home (this fork)**: with the touch lock on, hold **Up** for about 0.2 s on Home to unlock touch for a while (open padlock in the top bar; note "Touch unlocked · hold Down to lock"). The override ends when you open a book, hold **Down** for about 0.2 s, move the switch, the reader sleeps or switches off, or after 2 minutes without use.
 
-- **Dictionary under the touch lock (BOOX Picco, this fork)**: hold **Up** (the page-back side button) for about 0.2 s on a book page to open dictionary word selection ("Dictionary: tap or select a word" at the top). Touch works for the lookup; under the lock a short Up press turns back when you release it, so holding Up opens the dictionary without turning a page (it replaces Up's chapter skip there). Pressing **Down** during word selection backs out to the book (handy after an accidental hold). Returning to the book (after a definition, or when a word is not found) re-locks touch, and global gestures stay off during the lookup. Without the lock, long-press a word and choose Look Up.
+- **Dictionary under the touch lock (BOOX Picco, this fork)**: hold **Up** (the page-back side button) for about 0.2 s on a book page to open dictionary word selection ("Dictionary: tap or select a word" at the top). Touch works during the lookup. Under the lock, a short Up press turns back when you release the button, so a hold does not turn a page. The hold replaces Up's long-press chapter skip. Pressing **Down** during word selection backs out to the book (handy after an accidental hold). Returning to the book (after a definition, or when a word is not found) re-locks touch, and global gestures stay off during the lookup. Without the lock, long-press a word and choose Look Up.
   - Under the touch lock there is no menu: lifting your finger off a word (or a phrase you dragged across) looks it up at once, and the top band reads "Looking Up..." while your finger is down. Above the definition, **Another word** returns to word selection on the same page, and **+** returns with the word still selected and **Clip | Bookmark | <** below it (**<** goes back to picking a word). A tap anywhere else above the definition closes it.
   - Opened without the lock (Reader Menu **Dictionary**, or a Confirm hold or Home button set to Dictionary), the dictionary-mode selection menu shows **Look Up | Another word | +**. **Another word** clears the selection so you can tap a different word; **+** switches to **Clip | Bookmark | <** (and **<** back). A small finger slide keeps the touched word selected; drag clearly to extend the selection.
   - Every word you look up is appended to `/vocabulary/lookups.tsv` (date, word, dictionary headword, book, start of the definition) for later review; Home Backup copies it to your server too.
@@ -593,7 +593,7 @@ Once any of the options above is set up, press **Confirm** while reading to open
 
 #### 3.6.8 Home Backup (fork)
 
-This fork can back the reader up to a WebDAV server on your home network, and fetch books you queue there. Open **Settings -> Connectivity -> Home Backup**, or choose **Home Backup** on the File Transfer screen.
+This fork can back the reader up to a WebDAV server on your home network, and fetch books you queue there. Open **Settings → Connectivity → Home Backup**, or choose **Home Backup** on the File Transfer screen.
 
 - **Server URL**, **Username**, **Password**: the WebDAV server and its login (no defaults; enter your own). The password is stored obfuscated on the SD card (`/.crosspoint/backup.json`).
 - **Automatic backup (daily)**: when the reader goes to sleep and the last good backup is more than 24 hours old, it joins the last-used Wi-Fi network and backs up first. On battery (at least 30%) it stops after 60 seconds; on USB power it may run up to 15 minutes. Whatever is left continues on the next sleep. Sleep is never blocked for longer.
@@ -606,13 +606,13 @@ What a run does:
 1. **Fetches queued books**: every file in the server's `/to-reader/` folder is downloaded into `/books` (as `name (2).epub` if the name exists), then deleted from `/to-reader/`. Files whose size still changes during a 2-second check, such as a browser upload in progress, wait for the next run.
 2. **Uploads changes**: only files that changed since the last run (tracked in `/.crosspoint/backup/manifest.tsv`) are sent. It never deletes anything on the server.
 
-Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, per-book text settings (`book-settings/`), `settings.json`, `state.json`, `recent.json` and `opds.json`. Excluded: credential stores (Wi-Fi, sync, OPDS tokens) and layout caches the reader rebuilds.
+Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, per-book text settings (`book-settings/`), `settings.json`, `state.json` and `recent.json`. Excluded: Wi-Fi, sync and OPDS logins and tokens, the backup login and certificate, and layout caches the reader rebuilds.
 
 For an `https://` server the reader trusts only one pinned certificate: copy the server's certificate (PEM) to `/.crosspoint/backup-ca.pem` on the SD card, directly (USB drive mode or a card reader); File Transfer cannot change it. Without it the backup does not start, and Last backup shows "(no certificate)". See [docs/home-backup.md](docs/home-backup.md) for the server side.
 
 ### 3.7 Sleep Screen
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), followed by the progress in the open book ("· Book 34%") when it went to sleep from a book, or "Charging"/"Charged" with the level while on USB power.
+The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), followed by the progress in the open book ("· Book 34%") when it went to sleep from a book. On USB power the first part reads "Charging" or "Charged" with the level instead.
 
 Modes:
 
@@ -679,7 +679,7 @@ There are three ways to install fonts:
 2. **Upload via web interface:** While in **File Transfer** mode, open the web UI and use the **Fonts** tab to upload `.cpfont` files. The Fonts tab does not accept TTF/OTF/TTC files.
 3. **Manual SD card copy:** Copy `.cpfont` families from the [crosspoint-fonts repository](https://github.com/crosspoint-reader/crosspoint-fonts) to `/.fonts/` or `/fonts/`. If your device have external RAM, you can also copy TTF/OTF/TTC files there without conversion.
 
-Once installed, custom fonts appear in **Settings → Reader → Font Family** alongside the built-in fonts.
+Once installed, custom fonts appear in **Text Settings → Font** alongside the built-in fonts. **This fork:** Text Settings are saved per book, so to use a new font in a book you already opened, choose it in **Text Settings** from that book's Reader Menu.
 
 If the reader shows **Damaged font file**, a `.cpfont` file on the SD card is broken (for example, from an interrupted copy). The affected characters are drawn blank. Delete the font family's folder and install it again.
 

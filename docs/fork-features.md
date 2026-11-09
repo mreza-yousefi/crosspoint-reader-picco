@@ -46,7 +46,9 @@ Details: [USER_GUIDE.md section 3.6.2](../USER_GUIDE.md#362-reader).
 - Clear Reading Cache does not delete them; Home Backup includes them.
 
 ## Reader
-- EPUB book position `~page/~total` in the top-right page margin, left of the padlock; estimated from the current chapter's pages and its share of the book size. Shown with Book Progress Percentage on and a screen margin (set per book) of 20 px or more; hidden in chapters under 3 pages or under 300 bytes per page ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
+- EPUB book position `~page/~total` in the top-right page margin, left of the padlock; uses the exact page counts of chapters already laid out with the current settings and estimates the rest from their size (pages per byte of those chapters, ignoring chapters under 3 pages or under 300 bytes per page), so it gets more accurate as more chapters are opened; the `~` is dropped when every chapter, the current one included, is fully laid out. Shown with Book Progress Percentage on and a screen margin (set per book) of 20 px or more; hidden while some chapters are not laid out and no laid-out chapter is large enough to estimate from ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
+- Status-bar clock (EPUB, TXT, Markdown) repaints at each new minute with one fast refresh: no gray pass, no step towards the periodic clean refresh. Not during automatic page turn, with a menu, panel, popup or message over the page, or on UC8279 absolute-gray image pages ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
+- The RTC is set at each SNTP sync and from the Home Backup server's `Date` header after a run that ends Ok or Partial.
 
 ## Sleep screen
 - Strip with "Battery at sleep N%" and "· Book N%". On USB power the first part reads "Charging N%" or "Charged N%".

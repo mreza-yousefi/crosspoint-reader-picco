@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include <esp_sntp.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -62,8 +63,13 @@ void writeFloor(const int64_t value) {
   prefs.end();
 }
 
+std::atomic<bool> syncEvent{false};
+
 // SNTP sync callback (lwIP task context; Preferences/NVS is mutex-guarded).
-void onTimeSynced(struct timeval*) { note(); }
+void onTimeSynced(struct timeval*) {
+  note();
+  syncEvent = true;
+}
 
 void configureSntp() {
   // SNTP uses UTC epochs regardless of the display timezone. Copy TZ before
@@ -97,14 +103,18 @@ void note() {
   if (now - readFloor() >= MIN_ADVANCE_SECS) writeFloor(now);
 }
 
-void adopt(const int64_t epoch) {
-  // Out of range: leave the clock and the floor exactly as they are.
-  if (epoch < MIN_VALID_EPOCH || epoch > MAX_VALID_EPOCH) return;
-  // Compared against the persisted floor, not the in-RAM one: boot calls this
+bool plausible(const int64_t epoch) {
+  if (epoch < MIN_VALID_EPOCH || epoch > MAX_VALID_EPOCH) return false;
+  // Compared against the persisted floor, not the in-RAM one: boot calls adopt()
   // before init(), so the in-RAM floor is still empty and the persisted value is
   // the only record of a time this device has already lived through.
   const int64_t stored = readFloor();
-  if (stored >= MIN_VALID_EPOCH && epoch - stored > MAX_RTC_LEAD_SECS) return;
+  return stored < MIN_VALID_EPOCH || epoch - stored <= MAX_RTC_LEAD_SECS;
+}
+
+void adopt(const int64_t epoch) {
+  // Not plausible: leave the clock and the floor exactly as they are.
+  if (!plausible(epoch)) return;
   // Deep sleep keeps the system clock, so a wake arrives with a live clock and
   // an empty floor while the RTC may be the older reading: whichever is newer
   // wins, and only inside the supported window.
@@ -122,6 +132,8 @@ void startSync() {
   if (esp_sntp_enabled()) return;  // running; the sync callback handles the rest
   configureSntp();
 }
+
+bool takeSyncEvent() { return syncEvent.exchange(false); }
 
 bool syncNow(const uint32_t timeoutMs) {
   // configureSntp() (configTzTime) restarts SNTP if already running.

@@ -6,6 +6,7 @@
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
@@ -213,6 +214,13 @@ void moveFinishedBookToReadFolder(const std::string& srcPath, const std::string&
 // A button contact is closed right now. Reads the Xteink ADC ladder, power pin, and T5S3 expander
 // key only; on other boards a press stops the build once the loop has debounced it.
 bool buttonContactClosed() { return gpio.rawInputActive(); }
+
+// Chapters under 3 pages (cover, title pages) or under 300 bytes per page (mostly images or
+// markup) are too small to scale the book position from.
+bool scalesBookPosition(const uint64_t pages, const uint64_t bytes) {
+  constexpr uint64_t minBytesPerPage = 300;
+  return pages >= 3 && bytes / pages >= minBytesPerPage;
+}
 
 }  // namespace
 
@@ -786,6 +794,8 @@ void EpubReaderActivity::loop() {
     requestUpdate();
   }
 
+  requestClockRepaint();
+
   // The toolbar reader menu owns all input while shown, ahead of the automatic page turn
   // below: the More panel's rate popup switches automatic turning on and leaves the panel
   // open, so the timer must neither flip the page under it nor eat the panel's next
@@ -1009,9 +1019,11 @@ void EpubReaderActivity::loop() {
     const bool succeeded = pageTurn(forward);
     notePageTurn(forward, succeeded);
     if (succeeded && pendingManualTurnTouch) haptic_feedback::touchAction();
-    lastButtonTurnDir = succeeded && !pendingManualTurnTouch ? (forward ? 1 : -1) : 0;
+    const bool byButton = !pendingManualTurnTouch && !pendingManualTurnRemote;
+    lastButtonTurnDir = succeeded && byButton ? (forward ? 1 : -1) : 0;
     lastButtonTurnMs = millis();
     pendingManualTurnTouch = false;
+    pendingManualTurnRemote = false;
     requestUpdate();
     return;
   }
@@ -1063,6 +1075,7 @@ void EpubReaderActivity::loop() {
     LOG_DBG("ERS", "Page turn %s queued", prevTriggered ? "back" : "forward");
     pendingManualTurn = prevTriggered ? -1 : 1;
     pendingManualTurnTouch = touch.prev || touch.next;
+    pendingManualTurnRemote = false;
     return;
   }
 
@@ -1078,7 +1091,7 @@ void EpubReaderActivity::loop() {
 
 bool EpubReaderActivity::undoRecentButtonPageTurn(const unsigned long windowMs) {
   // A button turn queued behind a render has not happened yet: just drop it.
-  if (pendingManualTurn != 0 && !pendingManualTurnTouch) {
+  if (pendingManualTurn != 0 && !pendingManualTurnTouch && !pendingManualTurnRemote) {
     LOG_DBG("ERS", "Chord: dropped queued page turn");
     pendingManualTurn = 0;
     return true;
@@ -1315,6 +1328,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           section.reset();
           epub->clearCache();
           epub->setupCacheDir();
+          resetBookPosition();
           if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
             LOG_ERR("ERS", "Failed to save progress before cache clear");
           }
@@ -1618,12 +1632,69 @@ void EpubReaderActivity::beginLoanTimeSync() {
 }
 
 void EpubReaderActivity::render(RenderLock&& lock) {
+  fullRenderPending = false;
   if (loadFailurePopup.isActive()) {
     renderer.clearScreen();
     loadFailurePopup.processRender(renderer, mappedInput);
     return;
   }
+  if (quietRepaintRequested.exchange(false)) {
+    // The toolbar opened in the same loop pass and painted itself over the page.
+    if (overlay != Overlay::None) return;
+    // Same page as on screen, so not a page view: the reading session is not touched.
+    if (pageStillShown()) {
+      quietRepaintPass = true;
+      quietRepaintRunning = true;
+      renderBook();
+      quietRepaintRunning = false;
+      quietRepaintPass = false;
+      return;
+    }
+  }
   ReaderActivity::render(std::move(lock));
+}
+
+bool EpubReaderActivity::queueTurnBehindQuietRepaint(const bool forward) {
+  if (!quietRepaintRunning) return false;
+  pendingManualTurn = forward ? 1 : -1;
+  pendingManualTurnTouch = false;
+  pendingManualTurnRemote = true;
+  return true;
+}
+
+void EpubReaderActivity::requestUpdate(const bool immediate) {
+  quietRepaintRequested = false;
+  fullRenderPending = true;
+  ReaderActivity::requestUpdate(immediate);
+}
+
+// No pending reposition either: renderBook() would move to another page.
+bool EpubReaderActivity::pageStillShown() const {
+  return section && !isAtEndOfBook() && shownVisit == activityManager.visit() && shownSpine == currentSpineIndex &&
+         shownPage == section->currentPage && section->currentPage < static_cast<int>(section->pageCount) &&
+         !cachedVisibleTextOffset.has_value() && cachedChapterTotalPageCount == 0;
+}
+
+bool EpubReaderActivity::pageObscured() const {
+  return overlay != Overlay::None || overlayPopup.isActive() || showBookmarkMessage || showDictionaryMessage ||
+         showFontDamagedMessage || showClippingMessage || pendingSyncSaveError || popupOnGlass;
+}
+
+// A new minute on the status-bar clock repaints the page quietly. Not during
+// automatic page turn: a render restarts its interval.
+void EpubReaderActivity::requestClockRepaint() {
+  if (automaticPageTurnActive || pageObscured() || fullRenderPending || quietRepaintRequested ||
+      !SETTINGS.statusBarSpec().showsClock() || !halClock.isAvailable()) {
+    return;
+  }
+  RenderLock lock(RenderLock::Mode::Try);
+  if (!lock.ownsLock() || clockMinuteShown < 0 || !pageStillShown()) return;
+  // Same source and cache as the status bar, so the repaint draws this minute.
+  uint8_t hour = 0;
+  uint8_t minute = 0;
+  if (!halClock.getTime(hour, minute) || hour * 60 + minute == clockMinuteShown) return;
+  quietRepaintRequested = true;
+  ReaderActivity::requestUpdate();  // the override would cancel the request
 }
 
 bool EpubReaderActivity::remoteShortcut(const bool readerMenu) {
@@ -1666,6 +1737,8 @@ bool EpubReaderActivity::skipLoopDelay() {
 
 void EpubReaderActivity::renderBook() {
   currentPageLinks.clear();
+  shownPage = -1;
+  popupOnGlass = false;
   if (!epub) return;
   // A radio start in flight takes ~50 KB while the stack comes up: the page waits for it rather than
   // take the heap beside it (X3: abort() in a page restore at free 22,676 B). About 20 ms, once a visit.
@@ -1678,6 +1751,7 @@ void EpubReaderActivity::renderBook() {
     if (!pendingSyncSaveError) return;
     pendingSyncSaveError = false;
     GUI.drawPopup(renderer, tr(STR_SAVE_PROGRESS_FAILED));
+    popupOnGlass = true;
   };
 
   const auto showBuildError = [this](const char* message = nullptr) {
@@ -1925,6 +1999,8 @@ void EpubReaderActivity::renderBook() {
     section->currentPage = section->pageCount - 1;
   }
 
+  if (showsBookPosition()) updateBookPosition(renderSpec);
+
   applyDeferredReposition();
 
   renderer.clearScreen();
@@ -1961,6 +2037,7 @@ void EpubReaderActivity::renderBook() {
       section->abandonBuild();
       section->clearCache();
       section.reset();
+      resetBookPosition();  // the table may hold the deleted file's count
       if (giveUp) {
         LOG_ERR("ERS", "Page load retry limit reached, aborting");
         pageLoadRetryCount = 0;
@@ -1992,6 +2069,9 @@ void EpubReaderActivity::renderBook() {
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
     lastRenderCompleteMs = millis();
     markPageRendered();
+    shownSpine = currentSpineIndex;
+    shownPage = section->currentPage;
+    shownVisit = activityManager.visit();
   }
 
   if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
@@ -2143,7 +2223,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool pageHasImages = imageGrayscale && page->hasImages();
   const bool pageHasImagesNeedingDecode = pageHasImages && page->hasImagesNeedingDecode();
   const bool manualRefreshPending = forcedRefreshPending;
-  forcedRefreshPending = false;
+  if (!quietRepaintPass) forcedRefreshPending = false;
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
   const bool needsAnyGrayscale = needsTextGrayscale || (pageHasImages && !BoardConfig::isEegoA4());
@@ -2172,7 +2252,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     if (absoluteImageGrayscale || BoardConfig::isEegoA4()) renderStatusBar();
   };
 
-  if (pageHasImagesNeedingDecode) {
+  if (pageHasImagesNeedingDecode && !quietRepaintPass) {
     page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     renderStatusBar();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
@@ -2183,6 +2263,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   const auto tBwRender = millis();
+
+  if (quietRepaintPass) {
+    // The same page base is on the glass. A FAST refresh drives only the pixels
+    // that changed (the clock), so the gray AA pixels stay as they are.
+    // Absolute-gray image pages (UC8279) cannot be diffed that way: skip.
+    if (!absoluteImageGrayscale) renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    LOG_DBG("ERS", "Status bar repaint: %lums", millis() - t0);
+    return;
+  }
 
   if (absoluteImageGrayscale) {
     const auto baseMode = cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
@@ -2490,6 +2579,67 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
           static_cast<unsigned>(chapterClippings), static_cast<unsigned>(highlightedWords), millis() - started);
 }
 
+bool EpubReaderActivity::showsBookPosition() const {
+  // The page text starts screenMargin below the viewable top; the label needs its line box to fit above it.
+  return SETTINGS.statusBarSpec().showBookProgressPercent &&
+         SETTINGS.screenMargin > renderer.getLineHeight(SMALL_FONT_ID);
+}
+
+void EpubReaderActivity::updateBookPosition(const ReaderRenderSpec& spec) {
+  const bool specChanged = bookPositionSpec != spec;
+  if (specChanged) fillBookPositionPages(spec);
+  if (bookPositionPages && !section->isBuilding() && !section->isPartial()) {
+    bookPositionPages[currentSpineIndex] = section->pageCount;
+  }
+  if (specChanged || bookPositionScan.spineIndex != currentSpineIndex) sumBookPosition();
+}
+
+// One sections-dir walk that reads the header of each cached section file.
+void EpubReaderActivity::fillBookPositionPages(const ReaderRenderSpec& spec) {
+  const unsigned long startMs = millis();
+  bookPositionSpec = spec;
+  const int count = epub->getSpineItemsCount();
+  if (!bookPositionPages) bookPositionPages = makeUniqueNoThrow<uint16_t[]>(count);
+  if (!bookPositionPages) {
+    LOG_ERR("ERS", "Book position table: OOM (%u bytes)", static_cast<unsigned>(count * sizeof(uint16_t)));
+    return;
+  }
+  std::fill_n(bookPositionPages.get(), count, UINT16_MAX);
+  Section::readCachedPageCounts(*epub, spec, bookPositionPages.get(), count);
+  LOG_DBG("ERS", "Book position table: %d chapters read in %lu ms", count, millis() - startMs);
+}
+
+void EpubReaderActivity::sumBookPosition() {
+  BookPositionScan scan;
+  scan.spineIndex = currentSpineIndex;
+  const uint16_t* pages = bookPositionPages.get();
+  const int count = epub->getSpineItemsCount();
+  uint32_t previousEnd = 0;
+  for (int i = 0; i < count; i++) {
+    const uint32_t end = epub->getCumulativeSpineItemSize(i);
+    const uint32_t bytes = end > previousEnd ? end - previousEnd : 0;
+    previousEnd = std::max(previousEnd, end);
+    if (i == currentSpineIndex) continue;
+    const bool before = i < currentSpineIndex;
+    if (!pages || pages[i] == UINT16_MAX) {
+      (before ? scan.bytesBefore : scan.bytesAfter) += bytes;
+      continue;
+    }
+    (before ? scan.pagesBefore : scan.pagesAfter) += pages[i];
+    if (scalesBookPosition(pages[i], bytes)) {
+      scan.ratioPages += pages[i];
+      scan.ratioBytes += bytes;
+    }
+  }
+  bookPositionScan = scan;
+}
+
+void EpubReaderActivity::resetBookPosition() {
+  bookPositionPages.reset();
+  bookPositionSpec.reset();
+  bookPositionScan = {};
+}
+
 void EpubReaderActivity::renderStatusBar() const {
   int top, right, bottom, left;
   renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
@@ -2509,23 +2659,38 @@ void EpubReaderActivity::renderStatusBar() const {
   int textYOffset = 0;
   const auto sb = SETTINGS.statusBarSpec();
 
-  // Book position "~page/~total", scaled from this chapter's pages per spine byte. Uses the same
-  // spine sizes as calculateProgress, so it reads no new data. The page text starts screenMargin
-  // below the viewable top; skip the label when its line box does not fit above it.
-  if (sb.showBookProgressPercent && section && epub && SETTINGS.screenMargin > renderer.getLineHeight(SMALL_FONT_ID)) {
+  // The minute the theme draws below (same cached RTC read), for requestClockRepaint().
+  uint8_t clockHour = 0;
+  uint8_t clockMinute = 0;
+  clockMinuteShown = sb.showsClock() && halClock.getTime(clockHour, clockMinute) ? clockHour * 60 + clockMinute : -1;
+
+  // Book position "page/total": exact pages of chapters already laid out with these settings,
+  // the rest scaled by their pages per spine byte. "~" marks an estimate.
+  if (section && epub && showsBookPosition() && bookPositionScan.spineIndex == currentSpineIndex) {
+    const BookPositionScan& scan = bookPositionScan;
     const uint64_t before = currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
     const uint64_t through = epub->getCumulativeSpineItemSize(currentSpineIndex);
-    const uint64_t bookBytes = epub->getBookSize();
     const uint64_t chapterPages = section->estimatedTotalPages();
     const uint64_t chapterBytes = through > before ? through - before : 0;
-    // Too small to scale from: chapters under 3 pages (cover, title pages) or under
-    // 300 bytes per page (mostly images or markup).
-    constexpr uint64_t minBytesPerPage = 300;
-    if (bookBytes >= through && chapterPages >= 3 && chapterBytes / chapterPages >= minBytesPerPage) {
-      const uint64_t bookPage = chapterPages * before / chapterBytes + section->currentPage + 1;
-      const uint64_t bookPages = std::max(bookPage, (chapterPages * bookBytes + chapterBytes / 2) / chapterBytes);
+    uint64_t ratioPages = scan.ratioPages;
+    uint64_t ratioBytes = scan.ratioBytes;
+    // The current chapter's estimate moves while it builds: scale from it only when no other chapter can.
+    if (ratioBytes == 0 && scalesBookPosition(chapterPages, chapterBytes)) {
+      ratioPages += chapterPages;
+      ratioBytes += chapterBytes;
+    }
+    const bool othersKnown = scan.bytesBefore == 0 && scan.bytesAfter == 0;
+    if (othersKnown || ratioBytes > 0) {
+      const auto estimate = [ratioPages, ratioBytes](const uint64_t bytes) -> uint64_t {
+        return ratioBytes > 0 ? (bytes * ratioPages + ratioBytes / 2) / ratioBytes : 0;
+      };
+      const uint64_t pagesBefore = scan.pagesBefore + estimate(scan.bytesBefore);
+      const uint64_t bookPage = pagesBefore + section->currentPage + 1;
+      const uint64_t bookPages =
+          std::max(bookPage, pagesBefore + chapterPages + scan.pagesAfter + estimate(scan.bytesAfter));
+      const bool exact = othersKnown && !section->isBuilding() && !section->isPartial();
       char position[32];
-      snprintf(position, sizeof(position), "~%lu/~%lu", static_cast<unsigned long>(bookPage),
+      snprintf(position, sizeof(position), exact ? "%lu/%lu" : "~%lu/~%lu", static_cast<unsigned long>(bookPage),
                static_cast<unsigned long>(bookPages));
       constexpr int lockGap = 4;
       renderer.drawText(SMALL_FONT_ID, lockX - lockGap - renderer.getTextWidth(SMALL_FONT_ID, position), top, position);

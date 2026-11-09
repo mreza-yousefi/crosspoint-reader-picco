@@ -16,6 +16,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/NetworkTime.h"
 #include "util/PluginEvents.h"
 
 namespace fui = freeink::ui;
@@ -519,14 +520,11 @@ void WifiSelectionActivity::checkConnectionStatus() {
             WiFi.RSSI());
 #endif
 
-    // Sync RTC from NTP on the first successful WiFi connection only. The DS3231
-    // drifts ~2 ppm so one sync is enough; users can force a re-sync from
-    // Settings > System > Clock > Sync clock now.
+    // Blocking RTC sync on the first successful WiFi connection only, so the RTC
+    // is set before the caller can take Wi-Fi down again. Later SNTP syncs
+    // (trustedtime::startSync below) reach the RTC from the main loop.
     if (halClock.isAvailable() && !SETTINGS.clockHasBeenSynced) {
-      if (halClock.syncFromNTP()) {
-        SETTINGS.clockHasBeenSynced = 1;
-        SETTINGS.saveToFile();
-      }
+      if (halClock.syncFromNTP()) applyNetworkTime(time(nullptr));
     }
 
     // Every station join is a chance to snap the loan-clock floor to real

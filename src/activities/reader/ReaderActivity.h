@@ -58,6 +58,9 @@ class ReaderActivity : public Activity {
   virtual bool skipPages(int amount) { return pageTurn(amount > 0); }
   // A Bluetooth remote asks for the reader menu (true) or a new clipping (false).
   virtual bool remoteShortcut(bool /*readerMenu*/) { return false; }
+  // A remote turn that arrives during a quiet repaint (status-bar clock) is queued
+  // like a button press instead of refused. False when no quiet repaint runs.
+  virtual bool queueTurnBehindQuietRepaint(bool /*forward*/) { return false; }
   virtual bool isAtEndOfBook() const = 0;
   virtual void onReturnFromEndOfBook() {}
 

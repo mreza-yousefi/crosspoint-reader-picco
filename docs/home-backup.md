@@ -16,6 +16,10 @@ server. User-facing behavior: [USER_GUIDE.md section 3.6.8](../USER_GUIDE.md#368
 
 Requests carry `User-Agent: CrossPoint/<version>`.
 
+The server's clock should be right. After a run that completes or stops at its time limit, the reader sets its RTC
+(the status-bar clock) from the `Date` header of the last reply, and moves its system clock forward to it if it is
+behind.
+
 ## Certificate pinning
 
 For `https://` the reader trusts exactly one certificate: the PEM file `/.crosspoint/backup-ca.pem` on the SD card.
@@ -53,3 +57,4 @@ Wi-Fi, sync and OPDS logins and tokens, `backup.json` and `backup-ca.pem` stay o
 - `src/backup/BackupConfig.*`: settings file
 - `src/activities/settings/BackupSettingsActivity.*`, `BackupRunActivity.*`: UI
 - `src/main.cpp` `runSleepBackup()`: automatic run at sleep entry
+- `src/util/NetworkTime.*`: server and SNTP time to the system clock and the RTC

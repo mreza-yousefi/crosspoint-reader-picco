@@ -24,6 +24,8 @@ struct ReaderRenderSpec {
   bool embeddedStyle = true;
   uint8_t imageRendering = 0;
   bool focusReadingEnabled = false;
+
+  bool operator==(const ReaderRenderSpec&) const = default;
 };
 
 // Stable signature for clipping anchors. Page-local word ordinals are valid

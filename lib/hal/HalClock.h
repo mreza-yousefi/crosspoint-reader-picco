@@ -11,8 +11,10 @@ class HalClock {
   mutable Rtc _sdkRtc;
   // The RTC keeps UTC; local time comes from newlib's localtime_r under the
   // POSIX TZ rule set via setTimezone(), so zones with DST are correct
-  // year-round. Cached as a UTC epoch to keep the RTC bus quiet.
+  // year-round. Cached as a UTC epoch to keep the RTC bus quiet; reads add the
+  // millis() elapsed since _cachedAtMs.
   mutable time_t _cachedUtc = 0;
+  mutable unsigned long _cachedAtMs = 0;
   mutable bool _hasCachedTime = false;
   mutable unsigned long _lastPollMs = 0;
 
@@ -43,9 +45,17 @@ class HalClock {
   // Returns false if RTC is not available.
   bool formatTime(char* buf, size_t bufSize, bool use12Hour = false) const;
 
-  // Sync the RTC from an NTP server. Requires WiFi to be connected.
-  // Blocks for up to ~5s while waiting for SNTP response.
-  // Returns true if the RTC was successfully updated.
+  // Write the RTC from a UTC epoch (network time) and drop the read cache, so
+  // the next read shows it. False without an RTC, outside 2000-2099 (the chip
+  // calendar) or on a bus error. The read cache has no lock: callers serialize
+  // with reads on other tasks (CrossPoint: the render lock), or a racing read
+  // can cache the old time again.
+  bool setUtc(time_t utc);
+
+  // Sync the system clock from an NTP server. Requires WiFi to be connected.
+  // Blocks for up to ~5s while waiting for SNTP response. Returns true once
+  // synced; the caller then writes the RTC (under the render lock, since the
+  // render task reads the RTC cache).
   //
   // Debouncing (skip if already synced once) is enforced by the caller, not here,
   // so the HAL stays free of any app-layer settings dependency.

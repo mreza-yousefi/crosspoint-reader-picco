@@ -116,7 +116,10 @@ harness = harness.replace("int main() {", r"""
 #include <atomic>
 #include <memory>
 #include "activities/reader/RemoteTurnGate.h"
-struct RenderLock { static bool peek() { return false; } };
+struct RenderLock {
+  static inline bool rendering = false;
+  static bool peek() { return rendering; }
+};
 struct ReaderActivity {
   std::atomic<bool> pageRendered{true};
   bool menu = false;
@@ -124,6 +127,13 @@ struct ReaderActivity {
   bool inputOverPage() const { return menu; }
   bool pageTurn(bool forward) { pages += forward ? 1 : -1; return true; }
   bool skipPages(int step) { chapters += step; return true; }
+  bool quietRepaint = false;
+  int queued = 0;
+  bool queueTurnBehindQuietRepaint(bool forward) {
+    if (!quietRepaint) return false;
+    queued = forward ? 1 : -1;
+    return true;
+  }
 };
 struct ActivityManager {
   MappedInputManager& mappedInput;
@@ -156,6 +166,16 @@ void checkRouting(MappedInputManager& input) {
     assert(!manager.remoteTurn(true, true));
     assert(manager.currentActivity->chapters == 0 && !input.hasRemoteClick());
   }
+  // During a render the turn is refused, unless it is a quiet repaint: then it queues.
+  manager.foregroundReader = true;
+  manager.currentActivity->menu = false;
+  RenderLock::rendering = true;
+  assert(!manager.remoteTurn(true, false));
+  manager.currentActivity->quietRepaint = true;
+  assert(manager.remoteTurn(false, false) && manager.currentActivity->queued == -1);
+  assert(!manager.remoteTurn(true, true));
+  assert(manager.currentActivity->pages == 1 && manager.currentActivity->chapters == 0);
+  RenderLock::rendering = false;
   manager.context = false;
   assert(!manager.remoteTurn(true, false));
 }

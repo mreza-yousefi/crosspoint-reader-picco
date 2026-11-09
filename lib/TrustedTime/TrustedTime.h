@@ -24,13 +24,16 @@ namespace trustedtime {
 void init();
 
 // Seed the system clock from a battery-backed RTC epoch. Call at boot, before
-// init(), so init()'s floor restore can veto a lagging RTC. Deep sleep keeps
-// the system clock, so a clock that is already running is never rewound to an
-// older RTC reading; ignored when the epoch falls outside the plausible
-// 2025-2100 window, runs more than a year ahead of the persisted floor (a chip
-// reading that far ahead is faulty, and the floor never lowers again), or
-// predates the trusted floor.
+// init(), so init()'s floor restore can veto a lagging RTC. Also used at runtime
+// for network time (SNTP, the Home Backup server's Date header), under the same
+// rules. A clock that is already running is never rewound to an older epoch;
+// ignored when the epoch is not plausible() or predates the trusted floor.
 void adopt(int64_t epoch);
+
+// True when the epoch falls inside the plausible 2025-2100 window and runs at
+// most a year ahead of the persisted floor (a reading that far ahead is faulty,
+// and the floor never lowers again).
+bool plausible(int64_t epoch);
 
 // Persist the floor when the clock advanced past it. Cheap (one NVS read,
 // a write only when it moved). Call at sleep entry and after a time sync.
@@ -39,6 +42,10 @@ void note();
 // Kick off a non-blocking SNTP sync; the sync callback persists the floor.
 // Call whenever a Wi-Fi station connection comes up. No-op while running.
 void startSync();
+
+// True once after SNTP set the clock (since the last call), so the caller can
+// copy the synced time to the RTC on its own task. The callback runs on lwIP.
+bool takeSyncEvent();
 
 // Blocking SNTP sync with a deadline, for callers that need the wall clock
 // right now (e.g. progress-sync timestamps). Returns true when synced.

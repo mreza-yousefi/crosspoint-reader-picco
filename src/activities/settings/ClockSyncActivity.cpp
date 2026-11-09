@@ -14,6 +14,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/NetworkTime.h"
 
 void ClockSyncActivity::onEnter() {
   Activity::onEnter();
@@ -71,9 +72,8 @@ void ClockSyncActivity::runSync() {
     return;
   }
 
-  // Mark as synced so the auto-sync hook stops firing on future WiFi connects.
-  SETTINGS.clockHasBeenSynced = 1;
-  SETTINGS.saveToFile();
+  // Writes the RTC under the render lock and marks the clock as synced.
+  applyNetworkTime(time(nullptr));
 
   // Read the freshly synced time back for the user-facing confirmation.
   char buf[9];

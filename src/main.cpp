@@ -50,6 +50,7 @@
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
+#include "util/NetworkTime.h"
 #include "util/PluginEvents.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
@@ -411,6 +412,11 @@ static bool joinLastWifiForSleep(const char* popupText) {
   return true;
 }
 
+// Every SNTP sync also sets the RTC: it drifts, and the status-bar clock reads it.
+static void copySyncedTimeToRtc() {
+  if (trustedtime::takeSyncEvent()) applyNetworkTime(static_cast<int64_t>(time(nullptr)));
+}
+
 static void deliverSleepPluginEvents(const bool allowNetwork) {
   // Activity-owned state must be queued before sleep.enter and before this
   // same-sleep drain. The hook is idempotent with ordinary activity teardown.
@@ -546,6 +552,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
   deliverSleepPluginEvents(bluetoothStopped);
   runSleepBackup(bluetoothStopped);
+  copySyncedTimeToRtc();  // an SNTP answer during the drain or backup above
 
   const bool isQuickResumeSleep =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -776,6 +783,9 @@ void setup() {
   // wake is the recovery-firmware gesture (X4 Pro, X4 Classic).
   wakeLightChordHeld = isSleepWake && !recoveryFirmwareMode && gpio.isPressed(HalGPIO::BTN_DOWN);
   wokeWithLight = wakeLightChordHeld && !slideSwitchOwnsLight();
+  if (wakeLightChordHeld) {
+    mappedInputManager.hideButtonsUntilReleased((1u << HalGPIO::BTN_POWER) | (1u << HalGPIO::BTN_DOWN));
+  }
   const bool restoreLightOn =
       isSilentReboot ? silentRebootLightOn
       : slideSwitchOwnsLight()
@@ -1021,6 +1031,7 @@ void loop() {
   }
 
   renderer.setFadingFix(SETTINGS.fadingFix);
+  copySyncedTimeToRtc();
 
   // The ROM console does not depend on Arduino USB CDC's connection state.
   if ((Serial || FREEINK_LOG_TRANSPORT == FREEINK_LOG_TRANSPORT_ROM_PRINTF) && millis() - lastMemPrint >= 10000) {
@@ -1069,14 +1080,14 @@ void loop() {
     return;
   }
 
-  if (wakeLightChordHeld) {
-    if (!gpio.isPressed(HalGPIO::BTN_POWER) && !gpio.isPressed(HalGPIO::BTN_DOWN)) wakeLightChordHeld = false;
-    return;  // the wake chord's presses and releases never reach the screens
+  // The wake chord never takes a screenshot; setup hides its buttons until released.
+  if (wakeLightChordHeld && !gpio.isPressed(HalGPIO::BTN_POWER) && !gpio.isPressed(HalGPIO::BTN_DOWN)) {
+    wakeLightChordHeld = false;
   }
 
   static bool screenshotButtonsReleased = true;
   static bool screenshotComboActive = false;
-  if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+  if (!wakeLightChordHeld && gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
     screenshotComboActive = true;
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;

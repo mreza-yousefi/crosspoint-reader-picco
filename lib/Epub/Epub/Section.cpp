@@ -9,6 +9,8 @@
 #include <Serialization.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 
 #include "Epub/css/CssParser.h"
 #include "Page.h"
@@ -102,6 +104,26 @@ constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) +
                                  sizeof(uint8_t) + sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t) +
                                  sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(int8_t) +
                                  sizeof(uint8_t) + sizeof(uint8_t);
+
+// Reads the render settings that follow the version byte, compares them with `spec`, and
+// leaves `f` at the page count.
+bool headerMatchesSpec(HalFile& f, const ReaderRenderSpec& spec) {
+  ReaderRenderSpec stored;
+  serialization::readPod(f, stored.fontId);
+  serialization::readPod(f, stored.lineCompression);
+  serialization::readPod(f, stored.extraParagraphSpacing);
+  serialization::readPod(f, stored.paragraphIndentSpaces);
+  serialization::readPod(f, stored.paragraphAlignment);
+  serialization::readPod(f, stored.viewportWidth);
+  serialization::readPod(f, stored.viewportHeight);
+  serialization::readPod(f, stored.hyphenationEnabled);
+  serialization::readPod(f, stored.embeddedStyle);
+  serialization::readPod(f, stored.imageRendering);
+  serialization::readPod(f, stored.focusReadingEnabled);
+  serialization::readPod(f, stored.characterSpacing);
+  serialization::readPod(f, stored.wordSpacingPercent);
+  return stored == spec;
+}
 }  // namespace
 
 // Out-of-line so the unique_ptr<ChapterHtmlSlimParser> in BuildContext can be
@@ -110,7 +132,9 @@ Section::Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRen
     : epub(epub),
       spineIndex(spineIndex),
       renderer(renderer),
-      filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
+      filePath(sectionsDir(*epub) + "/" + std::to_string(spineIndex) + ".bin") {}
+
+std::string Section::sectionsDir(const Epub& epub) { return epub.getCachePath() + "/sections"; }
 
 // Suspend any in-progress build so every section.reset() / navigation / sleep path
 // persists the pages already laid out as a partial .bin instead of discarding them
@@ -196,39 +220,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     }
     filePartial = (version == SECTION_FILE_PARTIAL_VERSION);
 
-    int fileFontId;
-    uint16_t fileViewportWidth, fileViewportHeight;
-    float fileLineCompression;
-    bool fileExtraParagraphSpacing;
-    uint8_t fileParagraphIndentSpaces;
-    uint8_t fileParagraphAlignment;
-    bool fileHyphenationEnabled;
-    bool fileEmbeddedStyle;
-    uint8_t fileImageRendering;
-    bool fileFocusReadingEnabled;
-    int8_t fileCharacterSpacing;
-    uint8_t fileWordSpacingPercent;
-    serialization::readPod(file, fileFontId);
-    serialization::readPod(file, fileLineCompression);
-    serialization::readPod(file, fileExtraParagraphSpacing);
-    serialization::readPod(file, fileParagraphIndentSpaces);
-    serialization::readPod(file, fileParagraphAlignment);
-    serialization::readPod(file, fileViewportWidth);
-    serialization::readPod(file, fileViewportHeight);
-    serialization::readPod(file, fileHyphenationEnabled);
-    serialization::readPod(file, fileEmbeddedStyle);
-    serialization::readPod(file, fileImageRendering);
-    serialization::readPod(file, fileFocusReadingEnabled);
-    serialization::readPod(file, fileCharacterSpacing);
-    serialization::readPod(file, fileWordSpacingPercent);
-
-    if (spec.fontId != fileFontId || spec.lineCompression != fileLineCompression ||
-        spec.extraParagraphSpacing != fileExtraParagraphSpacing ||
-        spec.paragraphIndentSpaces != fileParagraphIndentSpaces || spec.paragraphAlignment != fileParagraphAlignment ||
-        spec.viewportWidth != fileViewportWidth || spec.viewportHeight != fileViewportHeight ||
-        spec.hyphenationEnabled != fileHyphenationEnabled || spec.embeddedStyle != fileEmbeddedStyle ||
-        spec.imageRendering != fileImageRendering || spec.focusReadingEnabled != fileFocusReadingEnabled ||
-        spec.characterSpacing != fileCharacterSpacing || spec.wordSpacingPercent != fileWordSpacingPercent) {
+    if (!headerMatchesSpec(file, spec)) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();
@@ -330,10 +322,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   const auto tmpHtmlPath = htmlDir + "/.tmp_" + std::to_string(spineIndex) + ".html";
 
   // Create cache directory if it doesn't exist
-  {
-    const auto sectionsDir = epub->getCachePath() + "/sections";
-    Storage.mkdir(sectionsDir.c_str());
-  }
+  Storage.mkdir(sectionsDir(*epub).c_str());
 
   // Reuse the previously unzipped HTML if we already have it. The unzipped HTML is keyed only on the
   // book (it lives in the per-book cache dir), not on render settings, so it survives the invalidation
@@ -967,6 +956,25 @@ std::optional<uint16_t> Section::getCachedPageCount() const {
   uint16_t count;
   serialization::readPod(f, count);
   return count;
+}
+
+void Section::readCachedPageCounts(const Epub& epub, const ReaderRenderSpec& spec, uint16_t* pages, const int count) {
+  // One directory walk instead of a path lookup per spine item: each FAT lookup rescans the directory.
+  HalFile dir = Storage.open(sectionsDir(epub).c_str());
+  if (!dir || !dir.isDirectory()) return;
+  char name[24];
+  for (HalFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    if (entry.isDirectory() || entry.getName(name, sizeof(name)) == 0) continue;
+    // Only "<spine>.bin"; skips "<spine>.bin.part" build files.
+    char* end = nullptr;
+    const long index = strtol(name, &end, 10);
+    if (end == name || strcmp(end, ".bin") != 0 || index < 0 || index >= count) continue;
+    if (entry.size() < HEADER_SIZE) continue;
+    uint8_t version = 0;
+    serialization::readPod(entry, version);
+    if (version != SECTION_FILE_VERSION || !headerMatchesSpec(entry, spec)) continue;
+    serialization::readPod(entry, pages[index]);
+  }
 }
 
 bool Section::openAnchorMap(HalFile& f, uint16_t& count) const {

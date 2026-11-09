@@ -520,7 +520,7 @@ bool ActivityManager::remoteTurn(const bool forward, const bool chapter) {
   }
   if (!remoteTurnAccepted(reader->pageRendered.load(std::memory_order_acquire), RenderLock::peek(),
                           reader->inputOverPage())) {
-    return false;
+    return !chapter && reader->queueTurnBehindQuietRepaint(forward);
   }
   const bool turned = chapter ? reader->skipPages(forward ? 1 : -1) : reader->pageTurn(forward);
   if (turned) requestUpdate();

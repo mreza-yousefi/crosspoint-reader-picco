@@ -475,6 +475,7 @@ bool MappedInputManager::wasPowerConfirmClick() const {
   // first release as Confirm. With the shortcut disabled, and on other touch
   // boards, the release counts directly.
   if (BoardConfig::isX4Pro() && SETTINGS.doubleClickPwrLight) return powerConfirmClickFrame;
+  if (chordMask & (1u << HalGPIO::BTN_POWER)) return false;  // a hidden chord's release
   return gpio.wasReleased(HalGPIO::BTN_POWER) && gpio.getPowerButtonHeldTime() <= SETTINGS.getPowerButtonDuration();
 }
 #endif

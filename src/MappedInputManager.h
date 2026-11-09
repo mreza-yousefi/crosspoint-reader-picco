@@ -117,6 +117,8 @@ class MappedInputManager {
   bool wasSideButtonChord() const { return chordFrame == Chord::UpDown; }  // Up + Down
   bool wasPowerUpChord() const { return chordFrame == Chord::PowerUp; }    // Power + Up
   bool isButtonChordHeld() const { return chordMask != 0; }
+  // Hides the held buttons (bits of HalGPIO indices) until all are up, release frames included.
+  void hideButtonsUntilReleased(const uint8_t gpioMask) const { chordMask |= gpioMask; }
   // Up held ~0.2 s under the touch lock (dictionary); the hold is then hidden.
   bool wasUpHold() const { return upHoldFrame; }
   // Down held ~0.2 s while the touch lock is overridden (lock again).

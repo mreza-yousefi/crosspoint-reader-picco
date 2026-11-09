@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "BackupConfig.h"
+#include "util/NetworkTime.h"
 
 namespace backup {
 namespace {
@@ -46,6 +47,7 @@ constexpr uint32_t DROP_SETTLE_MS = 2000;
 // Server clock from the last response's Date header (epoch seconds, 0 = none).
 // The home server keeps network time; the reader's RTC may not.
 int64_t lastServerEpoch = 0;
+uint32_t lastServerMs = 0;  // millis() when that header arrived
 
 // "sun, 01 nov 2026 21:35:12 gmt" (lower-cased RFC 1123) -> epoch seconds, or 0.
 int64_t parseHttpDate(const std::string& v) {
@@ -391,7 +393,10 @@ class DavClient {
       if (startsWith(line, "connection:") && line.find("close") != std::string::npos) close = true;
       if (startsWith(line, "date:")) {
         const int64_t t = parseHttpDate(line.substr(5));
-        if (t > 0) lastServerEpoch = t;
+        if (t > 0) {
+          lastServerEpoch = t;
+          lastServerMs = millis();
+        }
       }
     }
     // Only 2xx bodies go to the sink; error bodies are drained.
@@ -699,6 +704,10 @@ Result run(const BackupConfig& config, const uint32_t budgetMs, const ProgressCa
 Result runAndRecord(BackupConfig& config, const uint32_t budgetMs, const ProgressCallback& onProgress) {
   const Result result = run(config, budgetMs, onProgress);
   config.lastResult = static_cast<int>(result);
+  if ((result == Result::Ok || result == Result::Partial) && lastServerEpoch > 0) {
+    // The server keeps network time, however much was uploaded.
+    applyNetworkTime(lastServerEpoch + (millis() - lastServerMs) / 1000);
+  }
   if (result == Result::Ok) {
     // Prefer the server's clock (Date header of this run's last reply), then
     // network time; the reader's own clock may run ahead (trustedNow() never

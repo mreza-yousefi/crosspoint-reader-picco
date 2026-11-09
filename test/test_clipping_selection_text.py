@@ -36,7 +36,7 @@ selection_draw = method("void ClipSelectionActivity::drawSelection", "void ClipS
 word_font = method("int clippingWordFont", "Rect clippingWordRect", reader_source)
 word_rect = method("Rect clippingWordRect", "int clampPercent", reader_source)
 saved_hit = method("int EpubReaderActivity::clippingAtPoint", "void EpubReaderActivity::drawClippingHighlights", reader_source)
-saved_draw = method("void EpubReaderActivity::drawClippingHighlights", "void EpubReaderActivity::renderStatusBar", reader_source)
+saved_draw = method("void EpubReaderActivity::drawClippingHighlights", "bool EpubReaderActivity::showsBookPosition", reader_source)
 
 # Compile production extraction, export, and redraws with bounded UI/rendering stubs.
 harness = r"""

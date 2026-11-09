@@ -50,7 +50,8 @@ struct Preferences {
 constexpr int SNTP_SYNC_STATUS_COMPLETED = 1;
 inline bool esp_sntp_enabled() { return enabled; }
 inline int sntp_get_sync_status() { return completed ? SNTP_SYNC_STATUS_COMPLETED : 0; }
-inline void sntp_set_time_sync_notification_cb(void (*)(timeval*)) {}
+inline void (*syncCallback)(timeval*) = nullptr;
+inline void sntp_set_time_sync_notification_cb(void (*cb)(timeval*)) { syncCallback = cb; }
 ''',
 }
 
@@ -58,6 +59,7 @@ CHECK = r'''
 #include <TrustedTime.h>
 #include <Arduino.h>
 #include <Preferences.h>
+#include <esp_sntp.h>
 #include <cassert>
 #include <cstring>
 int main() {
@@ -117,6 +119,12 @@ int main() {
   trustedtime::adopt(rtcNow + 3600);
   assert(storedFloor == rtcNow + 3600);
 
+  // plausible() is adopt()'s gate, also used for network time.
+  assert(!trustedtime::plausible(0));
+  assert(!trustedtime::plausible(4102444801));
+  assert(trustedtime::plausible(rtcNow));
+  assert(!trustedtime::plausible(rtcNow + 3600 + 400 * 86400));
+
   // init()'s floor restore must leave an adopted floor alone, and a clock the
   // floor already trusts is reported rather than pulled back to the host date.
   trustedtime::init();
@@ -139,6 +147,13 @@ int main() {
   enabled = false;
   trustedtime::startSync();
   assert(strcmp(getenv("TZ"), "UTC0") == 0);
+
+  // Each SNTP sync is reported once, for the caller that copies it to the RTC.
+  assert(syncCallback != nullptr);
+  assert(!trustedtime::takeSyncEvent());
+  syncCallback(nullptr);
+  assert(trustedtime::takeSyncEvent());
+  assert(!trustedtime::takeSyncEvent());
 }
 '''
 

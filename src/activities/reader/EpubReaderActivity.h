@@ -38,6 +38,7 @@ class EpubReaderActivity final : public ReaderActivity {
   int8_t lastButtonTurnDir = 0;  // +1/-1 for the last button page turn, 0 = none
   unsigned long lastButtonTurnMs = 0;
   bool pendingManualTurnTouch = false;
+  bool pendingManualTurnRemote = false;  // queued from a Bluetooth remote behind a quiet repaint
   bool pendingPercentJump = false;
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
@@ -217,9 +218,58 @@ class EpubReaderActivity final : public ReaderActivity {
   void navigateToHref(const std::string& href, bool savePosition = false);
   void restoreSavedPosition();
 
+  // Status-bar clock: a new minute triggers a quiet repaint of the page on screen.
+  // It redraws the whole B/W page (status bar included) and pushes one FAST
+  // refresh: no gray pass, no refresh-cycle step, no reading-session update.
+  // Minute of day the last status bar drew, -1 = no clock drawn.
+  mutable int clockMinuteShown = -1;
+  // The page last drawn by a full render, to tell that it is still the one on screen.
+  int shownSpine = -1;
+  int shownPage = -1;
+  uint32_t shownVisit = 0;
+  // A popup drawn once over the page (save-progress error) stays on the glass
+  // until the next full render; a quiet repaint would erase it.
+  bool popupOnGlass = false;
+  // Loop -> render task: the next render is a quiet repaint. Any other
+  // requestUpdate() cancels it, and fullRenderPending blocks it until that render ran.
+  std::atomic<bool> quietRepaintRequested{false};
+  std::atomic<bool> fullRenderPending{false};
+  // Set by render() for the quiet repaint in progress; read by renderBook()/renderContents().
+  bool quietRepaintPass = false;
+  // Same, for the loop task: a remote turn arriving now is queued, not refused.
+  std::atomic<bool> quietRepaintRunning{false};
+  bool pageStillShown() const;
+  // Anything drawn over the page that a quiet repaint would erase or paint under.
+  bool pageObscured() const;
+  void requestClockRepaint();
+  bool queueTurnBehindQuietRepaint(bool forward) override;
+
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
+  // Book position: exact page counts of the chapters laid out with bookPositionSpec, indexed by
+  // spine (UINT16_MAX = unknown). 2 bytes per spine item, held while the book is open so a chapter
+  // change needs no sections-dir walk. Filled on open and on a settings change; renderBook adds each
+  // chapter it finalizes. Null after an allocation failure: every other chapter is then estimated.
+  std::unique_ptr<uint16_t[]> bookPositionPages;
+  std::optional<ReaderRenderSpec> bookPositionSpec;  // nullopt = not filled yet
+  // Totals for the chapters other than the current one, summed once per chapter or settings change;
+  // the status bar only adds the current chapter.
+  struct BookPositionScan {
+    int spineIndex = -1;
+    uint32_t pagesBefore = 0;  // exact pages of known chapters before the current one
+    uint32_t bytesBefore = 0;  // spine bytes of unknown chapters before the current one
+    uint32_t pagesAfter = 0;
+    uint32_t bytesAfter = 0;
+    uint32_t ratioPages = 0;  // known chapters large enough to scale from
+    uint32_t ratioBytes = 0;
+  };
+  BookPositionScan bookPositionScan;
+  bool showsBookPosition() const;
+  void updateBookPosition(const ReaderRenderSpec& spec);
+  void fillBookPositionPages(const ReaderRenderSpec& spec);
+  void sumBookPosition();
+  void resetBookPosition();
   void renderStatusBar() const;
   void applyOrientation(uint8_t orientation);
   void applyInitialOrientation() override;
@@ -258,6 +308,7 @@ class EpubReaderActivity final : public ReaderActivity {
 
   void loop() override;
   void render(RenderLock&& lock) override;
+  void requestUpdate(bool immediate = false) override;
 
   bool pageTurn(bool isForward) override;
   bool undoRecentButtonPageTurn(unsigned long windowMs) override;

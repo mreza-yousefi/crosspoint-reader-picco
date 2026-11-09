@@ -63,9 +63,14 @@ Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
 - Per-book Text Settings (EPUB): font, size, layout and style are saved for each book. A book is recognised by
   its content, so the settings stay when you rename or move the file. Home Backup includes them.
   **Text Settings → Layout → Reset Text Settings** sets the book back to the default values.
-- The position in the whole book, `~page/~total`, shows in the top-right page margin, next to the padlock. It is
-  an estimate. It shows when **Book Progress Percentage** is on (Settings → Reader → Customise Status Bar) and
-  the book's screen margin is 20 or more.
+- The position in the whole book, `~page/~total`, shows in the top-right page margin, next to the padlock. It
+  uses the exact page counts of chapters you have already opened with the current text settings and estimates the
+  rest, so it gets more accurate as you read; when every chapter is known, the `~` goes away. It shows when
+  **Book Progress Percentage** is on (Settings → Reader → Customise Status Bar) and the book's screen margin is 20 or
+  more.
+- The status-bar clock (Settings → Reader → Customise Status Bar → **Clock**) updates at each new minute while you
+  read (EPUB, TXT, Markdown), but not during automatic page turn or with a menu open. It is corrected at each Wi-Fi
+  time sync and after each Home Backup that does not fail.
 
 ### Sleep screen
 

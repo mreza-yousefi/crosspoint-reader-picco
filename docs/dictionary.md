@@ -54,7 +54,15 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 1. **Direct match** — the word or phrase is searched as-is (case-insensitive) in the dictionary index. Leading and trailing punctuation and whitespace are stripped automatically. Multi-word phrases match dictionary entries containing spaces (such as idioms, phrasal verbs, or compound terms). An index may list the same headword more than once (one entry per part of speech, for example); every entry it lists is shown, each labelled with its headword.
 2. **Synonyms** — on a miss, if the dictionary ships a `.syn` file, alternate spellings and irregular forms recorded there are resolved to their headword (e.g. `oxen` → `ox`, `colour` → `color`). All the headwords a synonym points at are shown. This step is skipped if the `.sidx` sidecar could not be built (e.g. transient low memory during indexing); the dictionary otherwise stays usable, and the build is retried the next time it is opened.
 3. **Stemming** — still no match: common English word forms are retried automatically: possessives and plurals (`dogs` → `dog`, `stories` → `story`) and verb endings (`walked` → `walk`, `running` → `run`, `making` → `make`).
-4. **Not found** — a short popup appears and you return to word selection.
+4. **Not found** — a short popup appears. Touchscreen devices return to reading; buttons-only devices return to word selection.
+
+## Vocabulary History
+
+Successful lookups started from a book page are appended to `/Vocabulary.txt` at the root of the SD card. This is separate from `My Clippings.txt`; looking up a word does not create a highlight. Failed lookups are not recorded, and an SD-card write failure does not interrupt the dictionary.
+
+The file uses UTF-8 **JSON Lines**: one JSON object per line, versioned with `"v":1`. Each record has a random `id`, `word` (selected text), `headword` (dictionary match), `definition` (plain text), and `timestamp` (Unix seconds, or `null` when the clock is unavailable). It also includes `title`, `author`, `series`, `series_index`, `chapter`, `page` (1-based chapter page), `spine` (0-based EPUB spine index), and `start_offset` (EPUB source offset, or `null` when unavailable). Missing series information is represented by an empty name and a `null` index. Definitions are limited to 2 KiB, looked-up words and matched headwords to 160 UTF-8 bytes each, and book fields to bounded lengths. The `definition_truncated` boolean indicates whether the definition (but not the word or headword) was shortened; when possible the saved definition ends at a complete line. HTML dictionary definitions are converted to plain text.
+
+Repeated lookups are recorded separately. Positions reflect the reader layout at lookup time and may change when the book is reflowed. The `chapter` title is resolved from the selected word's rendered page, not its exact offset: if two TOC chapter boundaries share a page, the title may refer to the later chapter rather than the one containing the word. Lookups made from inside a dictionary definition are not currently included.
 
 ## The Definition Screen
 
@@ -69,11 +77,15 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 - You can pull the light panel down over the sheet. Tap the sheet below it to close the panel. This does not
   work during a lookup started under the touch lock.
 
-**Lookup history (this fork):** each successful lookup appends a tab-separated line to `/vocabulary/lookups.tsv` on the SD card: `date`, `word` (as selected), `headword`, `book` (file name) and the first ~160 characters of the definition as plain text. The file opens in a spreadsheet; delete it to start a new list.
+**Vocabulary history (this fork):** **Save Vocabulary Lookups** (Settings, Reader; shown when a dictionary is installed) is on by default, so each successful lookup is saved to `/Vocabulary.txt` (see [Vocabulary History](#vocabulary-history)). Earlier builds of this fork wrote `/vocabulary/lookups.tsv`; that file is no longer updated.
 
-When a word is found, the definition screen shows the matched headword at the top and the definition text below, with a page counter for long definitions. A word that maps to several definitions shows all of them one after another, each labelled with its headword; if they do not all fit, the ones that fit are shown. If the first definition fills the size limit, it is shown alone without an extra label.
+When a word is found, the definition screen shows the matched headword at the top and the definition text below, with a page counter for long definitions. A word that maps to several definitions shows them one after another, each labelled with its headword. Definitions that exceed the remaining size limit are skipped, and later definitions are still considered. If no labelled definition fits, the first definition is shown alone without an extra label.
 
 HTML dictionaries (`sametypesequence=h`) and XDXF dictionaries (`sametypesequence=x`) use the EPUB text-layout engine for supported formatting such as headings, bold, italics, lists, and line breaks. Unrecognized tags keep their text without special formatting. Images and CSS styling are ignored. Definitions that are too large or cannot be parsed or laid out within the available memory fall back to plain text.
+
+A readable `.ifo` file with a missing or empty `sametypesequence` enables the type stored in each entry field. HTML (`h`) and XDXF (`x`) fields use the same formatting support. Text fields are shown as text; binary fields, such as images and sounds, are skipped. Missing, empty, or unreadable `.ifo` files retain plain-text handling.
+
+Inline entries with only empty or binary fields are skipped. If all matching entries are empty, the lookup reports no match.
 
 Definitions are drawn in your reading font. Dictionaries may use IPA symbols (e.g. `ˈ ː ɹ ɪ ʊ`…) as pronunciation guide, which built-in reader fonts do not include, so they are shown as `�`. To see them, install an [SD card font](./sd-card-fonts.md) that covers IPA and select it as the reading font.
 
@@ -81,7 +93,7 @@ Definitions are drawn in your reading font. Dictionaries may use IPA symbols (e.
 - **Confirm** — select words or a phrase inside the definition, then choose **Look Up**
 - **Long press on text** — select the touched word on touchscreen devices when touch reader controls are enabled
 - **Back during selection** — cancel selection
-- **Back while reading a definition** — return to the previous definition, or to book word selection at the first definition
+- **Back while reading a definition** — return to the previous definition. At the first definition, touchscreen devices return to reading; buttons-only devices return to book word selection
 - **Long Back while reading a definition** — hold **Back** for at least one second, then release to close all definitions and return directly to reading
 - **Long press the header Back arrow** — close all definitions and return directly to reading on touchscreen devices, even when touch reader controls are disabled
 
@@ -95,7 +107,7 @@ A failed lookup reloads the current definition and keeps its page and selection.
 
 The current definition is released before loading another entry, so two definitions do not need to fit in memory together.
 Returning to a previous definition reads it from the SD card again.
-If a previous definition cannot be read or its position restored, the definition screen closes and returns to book word selection.
+If a previous definition cannot be read or its position restored, the definition screen closes. Touchscreen devices return to reading; buttons-only devices return to book word selection.
 The screen also closes if a failed forward lookup cannot reload the current definition.
 
 

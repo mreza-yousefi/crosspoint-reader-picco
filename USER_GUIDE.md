@@ -318,6 +318,8 @@ The Reader settings are:
 
 - **Dictionary**: Select the StarDict dictionary used for word lookups while reading, or "None" to disable lookups. *(Only shown when at least one dictionary folder exists under `/dictionaries/` on the SD card — see [docs/dictionary.md](docs/dictionary.md) for setup and usage.)*
 
+- **Save Vocabulary Lookups**: Save each successful lookup started from a book page to `/Vocabulary.txt` ([format](docs/dictionary.md#vocabulary-history)). On by default in this fork. *(Shown with **Dictionary**.)*
+
 - **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly.
 
 - **Images**: How embedded images (JPG/PNG/GIF) in EPUB files are shown. GIFs render only the first frame; interlaced GIFs are not supported.
@@ -333,6 +335,9 @@ The Reader settings are:
 - **Remap Front Buttons**: A menu for customising the function of each bottom edge button.
 
 - **Side Button Layout (reader)**: Swap the order of the up and down side buttons from "Prev/Next" (default) to "Next/Prev". You can also disable them entirely. This change is only in effect when reading.
+
+- **Orient Front Buttons**: Make front-button directions follow the reading orientation. Available on devices without touch.
+- **Orient Side Buttons**: Available on all supported devices with side page buttons, including touch and button-only devices. Reverse the reader's selected **Side Button Layout** in both landscape modes when enabled. Normal portrait always keeps the selected layout, and upside-down portrait always reverses it, whether this option is on or off. Layouts that give both buttons the same action, or disable them, are unchanged. This option is off by default, including when upgrading from a version without it. Existing saved choices are preserved.
 
 - **Long-press Chapter Skip**: Set whether long-pressing page turn buttons skips to the next/previous chapter:
   
@@ -369,10 +374,10 @@ The Reader settings are:
 
 - **Unlock touch from Home (this fork)**: with the touch lock on, hold **Up** for about 0.4 s on Home to unlock touch for a while (open padlock in the top bar; note "Touch unlocked · hold Down to lock"). The override ends when you open a book, hold **Down** for about 0.2 s, move the switch, the reader sleeps or switches off, or after 2 minutes without use.
 
-- **Dictionary under the touch lock (BOOX Picco, this fork)**: hold **Up** (the page-back side button) for about 0.4 s on a book page to open dictionary word selection ("Dictionary: tap or select a word" at the top). Touch works during the lookup. Under the lock, a short Up press turns back when you release the button, so a hold does not turn a page. The hold replaces Up's long-press chapter skip. Pressing **Down** during word selection backs out to the book (handy after an accidental hold). Returning to the book (after a definition, or when a word is not found) re-locks touch, and global gestures stay off during the lookup. Without the lock, long-press a word and choose Look Up.
+- **Dictionary under the touch lock (BOOX Picco, this fork)**: hold **Up** (the upper side button) for about 0.4 s on a book page to open dictionary word selection ("Dictionary: tap or select a word" at the top). Touch works during the lookup. Under the lock, a short Up press turns the page as usual when you release the button, so a hold does not turn a page. The hold replaces Up's long-press chapter skip. Pressing **Down** during word selection backs out to the book (handy after an accidental hold). Returning to the book (after a definition, or when a word is not found) re-locks touch, and global gestures stay off during the lookup. Without the lock, long-press a word and choose Look Up.
   - Under the touch lock there is no menu: lifting your finger off a word (or a phrase you dragged across) looks it up at once, and the top band reads "Looking Up..." while your finger is down. Above the definition, **Another word** returns to word selection on the same page, and **+** returns with the word still selected and **Clip | Bookmark | <** below it (**<** goes back to picking a word). A tap anywhere else above the definition closes it.
   - Opened without the lock (Reader Menu **Dictionary**, or a Confirm hold or Home button set to Dictionary), the dictionary-mode selection menu shows **Look Up | Another word | +**. **Another word** clears the selection so you can tap a different word; **+** switches to **Clip | Bookmark | <** (and **<** back). A small finger slide keeps the touched word selected; drag clearly to extend the selection.
-  - Every word you look up is appended to `/vocabulary/lookups.tsv` (date, word, dictionary headword, book, start of the definition) for later review; Home Backup copies it to your server too.
+  - Every word you look up is saved to `/Vocabulary.txt` (one JSON record per line: word, dictionary headword, definition, time, book title, author, chapter and page) for later review; Home Backup copies it to your server too. **Save Vocabulary Lookups** (below **Dictionary**) turns this off; it is on by default in this fork. Earlier builds wrote `/vocabulary/lookups.tsv`, which is no longer updated.
 
 - **Refresh shortcut under the touch lock (BOOX Picco, this fork)**: while the touch lock is on (also with the light panel open), press **Power and Up together** for a full screen refresh (clears ghosting), like **Power and Down** takes a screenshot. Without the lock, use the refresh button in the light panel. As with Up+Down, the presses never turn a page, a page turn from a not-quite-simultaneous press is undone, and holding the pair does not put the reader to sleep.
 
@@ -401,6 +406,7 @@ The Reader settings are:
   - Open **Home → Plugins** to view installed plugins. Hold **Confirm** on a selected installed plugin for one second (or long-press its row on a touch device) to open an uninstall confirmation. Confirming deletes that plugin's installed folder and files; cancelling leaves it installed. If no usable on-device Plugin Hub is available and its installer has not been hidden, a **Plugin Hub — Download, discover, and update plugins** entry is also shown. A manually sideloaded Hub with a valid `device.json` is recognized without requiring the optional README or browser files.
   - Selecting that Plugin Hub entry offers **Install**, **Hide**, or **Cancel**. **Install** downloads Plugin Hub over Wi-Fi. If you back out of Wi-Fi selection, installation is cancelled, Wi-Fi is turned back off, and you return to Plugins with the installer still available. **Hide** removes only the Plugin Hub install entry; it does not disable plugins or affect sideloaded plugins. **Cancel** leaves the entry unchanged.
   - **Hide** persists across reboots. Setting **Settings → Connectivity → Plugins** to **Enabled** again brings the installer back.
+  - Plugins with web settings appear on the **Plugins** page of the web UI while **File Transfer** is running. Its link is hidden while plugins are disabled.
   - Plugin Hub is optional. Users who prefer manual installation can download it directly from [crosspoint-plugin-hub releases](https://github.com/crosspoint-reader/crosspoint-plugin-hub/releases) and copy/extract the `pluginhub` folder so it ends up at `/.crosspoint/plugins/pluginhub/`, `/plugins/pluginhub/`, or `/.plugins/pluginhub/`. Once installed, Plugin Hub appears as a normal entry under **Home → Plugins**.
 
 - **Language**: Set the UI language. CrossPoint supports 32 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, European Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Arabic, Slovak, Bosnian, Vietnamese, Norwegian Bokmål, Indonesian, and Orangutan.
@@ -684,7 +690,7 @@ CrossPoint loads additional fonts from the SD card. Custom fonts can add Chinese
 There are three ways to install fonts:
 
 1. **Download from device (recommended):** Go to **Settings -> Reader -> Manage Fonts**, browse the available font families, and select one to download over Wi-Fi.
-2. **Upload via web interface:** While in **File Transfer** mode, open the web UI and use the **Fonts** tab to upload `.cpfont` files. The Fonts tab does not accept TTF/OTF/TTC files.
+2. **Upload via web interface:** While in **File Transfer** mode, open the web UI and use the **Fonts** tab to upload `.cpfont` files. If your device has external RAM, the Fonts tab also accepts `.ttf` and `.otf` files. Choose the folder that contains the font family's files; the picker selects folders, not single files. The Fonts tab does not accept `.ttc` files; on devices with external RAM, copy those to the SD card instead (see item 3).
 3. **Manual SD card copy:** Copy `.cpfont` families from the [crosspoint-fonts repository](https://github.com/crosspoint-reader/crosspoint-fonts) to `/.fonts/` or `/fonts/`. If your device have external RAM, you can also copy TTF/OTF/TTC files there without conversion.
 
 Once installed, custom fonts appear in **Text Settings → Font** alongside the built-in fonts. **This fork:** Text Settings are saved per book, so to use a new font in a book you already opened, choose it in **Text Settings** from that book's Reader Menu.

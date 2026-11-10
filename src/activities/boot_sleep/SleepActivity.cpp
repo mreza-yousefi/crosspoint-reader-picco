@@ -56,9 +56,21 @@ HalDisplay::GrayscaleMode sleepGrayscaleMode(const GfxRenderer& renderer) {
              : HalDisplay::GrayscaleMode::Absolute;
 }
 
+// Picco redraws its battery strip over the sleep image with a fast B/W
+// refresh. An absolute gray image loses its grays to that, so the Picco keeps
+// the overlay path.
+bool sleepAbsoluteGray(const GfxRenderer& renderer) {
+#if FREEINK_DEVICE_PICCO
+  (void)renderer;
+  return false;
+#else
+  return renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
+#endif
+}
+
 // SSD absolute images use the new thresholds; other panels retain legacy tuning.
 bool useOriginalCoverThresholds(const GfxRenderer& renderer) {
-  return renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported() &&
+  return sleepAbsoluteGray(renderer) &&
          display.getController() == HalDisplay::Controller::SSD1677 &&
          SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
 }
@@ -416,7 +428,7 @@ AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& re
 
   if (!renderTransparentOverlayPass(file, info, placement, renderer, row.get(), TransparentOverlayPass::BW))
     return AlphaOverlayResult::Error;
-  const bool absolute = renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
+  const bool absolute = sleepAbsoluteGray(renderer);
   const BwFrameKeeper bwFrame(renderer, !absolute);
   if (!bwFrame.ready()) {
     renderer.displayBuffer(kSleepClean);
@@ -865,7 +877,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
 
   // Cover + Transparent: the B/W cover is the overlay's background; the overlay renderers redraw its gray planes.
   if (overlayCover == &bitmap) {
-    if (hasGreyscale && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported()) {
+    if (hasGreyscale && sleepAbsoluteGray(renderer)) {
       overlayGrayCover = &bitmap;
     }
     renderTransparentCustomSleepScreen();
@@ -873,7 +885,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
     return;
   }
 
-  const bool absolute = hasGreyscale && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
+  const bool absolute = hasGreyscale && sleepAbsoluteGray(renderer);
   const BwFrameKeeper bwFrame(renderer, hasGreyscale && !absolute);
   if (!bwFrame.ready()) {
     renderer.displayBuffer(kSleepClean);
@@ -964,7 +976,7 @@ bool SleepActivity::renderTransparentOverlayPng(const std::string& path) const {
   LOG_DBG("SLP", "Rendering transparent PNG overlay: %s (%dx%d)", path.c_str(), dimensions.width, dimensions.height);
 
   if (!converter.decodeToFramebuffer(path, renderer, config)) return false;
-  const bool absolute = renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
+  const bool absolute = sleepAbsoluteGray(renderer);
   const BwFrameKeeper bwFrame(renderer, !absolute);
   if (!bwFrame.ready()) {
     renderer.displayBuffer(kSleepClean);

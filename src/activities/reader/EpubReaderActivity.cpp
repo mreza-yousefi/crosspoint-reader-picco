@@ -270,6 +270,7 @@ bool EpubReaderActivity::loadBook() {
     return false;
   }
   epub = std::move(loadedEpub);
+  vocabularyMetadata.reset();
 
   ImageBlock::clearRenderFailures();
   ImageBlock::setExtractor(epub.get(), [](void* ctx, const char* src, const char* dest) {
@@ -562,9 +563,33 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
       }
       int top, right, bottom, left;
       renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-      auto lookup = makeUniqueNoThrow<DictionaryWordSelectActivity>(renderer, mappedInput, std::move(page),
-                                                                    left + SETTINGS.screenMargin,
-                                                                    top + SETTINGS.screenMargin, clipping.text);
+      std::string chapter = chapterTitle;
+      if (section && currentSpineIndex == spineIndex) {
+        // TOC anchors are indexed by rendered page, not by the selected word's offset.
+        // Multiple chapter anchors on one page cannot be distinguished here.
+        const int selectedTocIndex = section->getTocIndexForPage(startPage);
+        if (selectedTocIndex >= 0) chapter = epub->getTocItem(selectedTocIndex).title;
+      }
+      VocabularyContext vocabulary;
+      vocabulary.title = std::move(bookTitle);
+      vocabulary.author = std::move(author);
+      vocabulary.chapter = std::move(chapter);
+      vocabulary.page = startPage + 1;
+      vocabulary.spine = spineIndex;
+      vocabulary.startOffset = clipping.startOffset;
+      if (SETTINGS.vocabularyHistoryEnabled && !vocabularyMetadata) {
+        auto metadata = makeUniqueNoThrow<Epub::SyncMetadata>();
+        if (metadata && epub->loadSyncMetadata(*metadata)) {
+          vocabularyMetadata = std::move(metadata);
+        }
+      }
+      if (vocabularyMetadata) {
+        vocabulary.series = vocabularyMetadata->series;
+        vocabulary.seriesIndex = vocabularyMetadata->seriesIndex;
+      }
+      auto lookup = makeUniqueNoThrow<DictionaryWordSelectActivity>(
+          renderer, mappedInput, std::move(page), left + SETTINGS.screenMargin, top + SETTINGS.screenMargin,
+          clipping.text, std::move(vocabulary));
       if (!lookup) {
         LOG_ERR("CLIP", "OOM: dictionary lookup activity");
         requestUpdate();
@@ -3644,17 +3669,23 @@ ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {
     snprintf(info.title, sizeof(info.title), "%s", epub->getTitle().c_str());
     info.spineIndex = currentSpineIndex;
   }
-  if (section) {
-    info.currentPage = section->currentPage + 1;
-    info.totalPages = section->estimatedTotalPages();
-    if (epub && epub->getBookSize() > 0 && info.totalPages > 0) {
-      const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(info.totalPages);
-      int pct = static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f + 0.5f);
-      if (pct < 0) pct = 0;
-      if (pct > 100) pct = 100;
-      info.progressPercent = pct;
+  // With the section released (reader left from the chapter list), the saved position stands in.
+  const ChapterPosition position = chapterPosition();
+  if (section || position.hasTotal()) {
+    info.currentPage = position.displayPage();
+    info.totalPages = position.totalPages;
+    if (epub && epub->getBookSize() > 0 && position.hasTotal()) {
+      info.progressPercent = bookPercentFor(position);
+      // 100 only on the last page of a fully laid-out chapter: rounding must not
+      // report a long book finished early. Without the section that is unknown.
+      const bool lastPage = section && currentSpineIndex == epub->getSpineItemsCount() - 1 && !section->isBuilding() &&
+                            !section->isPartial() && position.displayPage() >= position.totalPages;
+      const float chapterEnd = static_cast<float>(position.displayPage()) / static_cast<float>(position.totalPages);
+      const int endPct = static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterEnd) * 100.0f);
+      info.endProgressPercent = lastPage ? 100 : std::clamp(endPct, 0, 99);
     }
   }
+  if (isAtEndOfBook()) info.endProgressPercent = 100;
   return info;
 }
 

@@ -32,7 +32,7 @@ Details: [docs/dictionary.md](docs/dictionary.md#the-definition-screen).
 - Definitions open as a sheet over the lower part of the screen. The book page stays visible above it.
 - With touch locked, hold Up on a book page and tap a word. The definition opens at once, without a menu.
 - The selection menu is simpler: Look Up, Another word and +. After a lookup, the reader goes back to the book.
-- Each lookup is added to a list in `/vocabulary/lookups.tsv`.
+- Each lookup is added to `/Vocabulary.txt` (upstream Vocabulary History, on by default in this fork).
 - Persian definitions: add Persian letters to your reading font with a script
   ([how](docs/dictionary.md#persian-and-other-arabic-script-definitions)).
 

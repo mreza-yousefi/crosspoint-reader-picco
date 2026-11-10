@@ -27,7 +27,7 @@ Details: [docs/dictionary.md](dictionary.md).
 - Same large buttons in every selection menu; Look Up turns black with "Looking Up..." while it works.
 - One clean refresh when the definition sheet appears, and one when "Not Found" closes.
 - The light panel can open over the definition sheet; closing it puts back the page above the sheet.
-- Lookup history in `/vocabulary/lookups.tsv`.
+- Lookup history: upstream Vocabulary History (`/Vocabulary.txt`), on by default in this fork (replaces the earlier `/vocabulary/lookups.tsv`).
 - Persian definitions: add Persian glyphs to your reading font with `scripts/merge_persian_font.py`.
 
 ## Home

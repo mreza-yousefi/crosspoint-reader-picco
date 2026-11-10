@@ -5,7 +5,7 @@
 
 void forEachBaseSetting(SettingVisitor visit, void* context) {
   // Load and save walk this list, so every condition here must be fixed before
-  // settings load. Runtime probes belong in getSettingsList().
+  // settings load. Runtime probes belong in isHiddenOnDevice().
 
   // Enum settings are persisted as numeric values. Assign these labels by enum
   // value so a reordered menu or enum cannot silently swap their behavior.
@@ -126,6 +126,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Enum(StrId::STR_READER_MENU_STYLE, &CrossPointSettings::readerMenuStyle,
                          {StrId::STR_MENU_STYLE_LIST, StrId::STR_MENU_STYLE_TOOLBAR}, "readerMenuStyle",
                          StrId::STR_CAT_READER));
+  emit(SettingInfo::Toggle(StrId::STR_SAVE_VOCABULARY_LOOKUPS, &CrossPointSettings::vocabularyHistoryEnabled,
+                           "vocabularyHistoryEnabled", StrId::STR_CAT_READER));
   // --- Controls ---
 #if FREEINK_CAP_HAPTIC
   emit(SettingInfo::Enum(StrId::STR_VIBRATION, &CrossPointSettings::vibration,
@@ -171,6 +173,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   if (!BoardConfig::hasTouch())
     emit(SettingInfo::Toggle(StrId::STR_FRONT_BTN_FOLLOW_ORIENTATION, &CrossPointSettings::frontButtonFollowOrientation,
                              "frontButtonFollowOrientation", StrId::STR_CAT_CONTROLS));
+  emit(SettingInfo::Toggle(StrId::STR_SIDE_BTN_FOLLOW_ORIENTATION, &CrossPointSettings::sideButtonFollowOrientation,
+                           "sideButtonFollowOrientation", StrId::STR_CAT_CONTROLS));
   emit(SettingInfo::Enum(StrId::STR_LONG_PRESS_BEHAVIOR, &CrossPointSettings::longPressButtonBehavior,
                          {StrId::STR_LONG_PRESS_BEHAVIOR_OFF, StrId::STR_LONG_PRESS_BEHAVIOR_SKIP,
                           StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
@@ -181,7 +185,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
     emit(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                              "doubleClickPwrLight", StrId::STR_CAT_CONTROLS));
   emit(buildShortPowerButtonSetting());
-  // Always persisted; getSettingsList() hides it when the IMU probe fails.
+  // Always persisted; isHiddenOnDevice() hides it when the IMU probe fails.
   emit(SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
                          {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED}, "tiltPageTurn",
                          StrId::STR_CAT_CONTROLS));
@@ -376,16 +380,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   }
 }
 
-std::vector<SettingInfo> getBaseSettingsList(const size_t extraCapacity) {
-  // Count first so the one contiguous block is sized exactly.
+size_t countBaseSettings() {
   size_t count = 0;
   forEachBaseSetting([](void* context, SettingInfo&) { ++*static_cast<size_t*>(context); }, &count);
-  std::vector<SettingInfo> v;
-  v.reserve(count + extraCapacity);
-  forEachBaseSetting(
-      [](void* context, SettingInfo& info) {
-        static_cast<std::vector<SettingInfo>*>(context)->push_back(std::move(info));
-      },
-      &v);
-  return v;
+  return count;
 }

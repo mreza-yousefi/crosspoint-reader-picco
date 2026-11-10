@@ -9,8 +9,6 @@
 #include <Serialization.h>
 
 #include <algorithm>
-#include <cstdlib>
-#include <cstring>
 
 #include "Epub/css/CssParser.h"
 #include "Page.h"
@@ -124,6 +122,8 @@ bool headerMatchesSpec(HalFile& f, const ReaderRenderSpec& spec) {
   serialization::readPod(f, stored.wordSpacingPercent);
   return stored == spec;
 }
+
+std::string sectionsDir(const Epub& epub) { return epub.getCachePath() + "/sections"; }
 }  // namespace
 
 // Out-of-line so the unique_ptr<ChapterHtmlSlimParser> in BuildContext can be
@@ -133,8 +133,6 @@ Section::Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRen
       spineIndex(spineIndex),
       renderer(renderer),
       filePath(sectionsDir(*epub) + "/" + std::to_string(spineIndex) + ".bin") {}
-
-std::string Section::sectionsDir(const Epub& epub) { return epub.getCachePath() + "/sections"; }
 
 // Suspend any in-progress build so every section.reset() / navigation / sleep path
 // persists the pages already laid out as a partial .bin instead of discarding them
@@ -956,25 +954,6 @@ std::optional<uint16_t> Section::getCachedPageCount() const {
   uint16_t count;
   serialization::readPod(f, count);
   return count;
-}
-
-void Section::readCachedPageCounts(const Epub& epub, const ReaderRenderSpec& spec, uint16_t* pages, const int count) {
-  // One directory walk instead of a path lookup per spine item: each FAT lookup rescans the directory.
-  HalFile dir = Storage.open(sectionsDir(epub).c_str());
-  if (!dir || !dir.isDirectory()) return;
-  char name[24];
-  for (HalFile entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
-    if (entry.isDirectory() || entry.getName(name, sizeof(name)) == 0) continue;
-    // Only "<spine>.bin"; skips "<spine>.bin.part" build files.
-    char* end = nullptr;
-    const long index = strtol(name, &end, 10);
-    if (end == name || strcmp(end, ".bin") != 0 || index < 0 || index >= count) continue;
-    if (entry.size() < HEADER_SIZE) continue;
-    uint8_t version = 0;
-    serialization::readPod(entry, version);
-    if (version != SECTION_FILE_VERSION || !headerMatchesSpec(entry, spec)) continue;
-    serialization::readPod(entry, pages[index]);
-  }
 }
 
 bool Section::openAnchorMap(HalFile& f, uint16_t& count) const {

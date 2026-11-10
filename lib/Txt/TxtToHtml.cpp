@@ -69,7 +69,8 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
   size_t pendingSpaces = 0;
   int bytesRead = 0;
 
-  while ((bytesRead = readFn(readerCtx, inBuf.get(), IN_BUF_SIZE)) > 0) {
+  // A short write ends the stream: the sink is full or wants no more.
+  while (outputOk && (bytesRead = readFn(readerCtx, inBuf.get(), IN_BUF_SIZE)) > 0) {
     int startIdx = 0;
     if (isStart) {
       isStart = false;
@@ -123,8 +124,10 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
     return false;
   }
 
-  writeStr("\n</body>\n</html>\n");
-  flushOut();
+  if (outputOk) {
+    writeStr("\n</body>\n</html>\n");
+    flushOut();
+  }
   if (!outputOk) {
     LOG_ERR("TXT", "Failed to stream complete HTML (write error or disk full)");
     return false;

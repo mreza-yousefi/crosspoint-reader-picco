@@ -75,13 +75,16 @@ void CoverGridHomeUi::noteThumbHeight(int slotHeight) {
 void CoverGridHomeUi::onAction(const fui::ActionEvent& event, void* user) {
   auto& self = *static_cast<CoverGridHomeUi*>(user);
   self.pending = event.value;
+  self.pendingLongPress = event.longPress;
   self.app.clearTapFlash();
 }
 
-int CoverGridHomeUi::selectedAction(const MappedInputManager& input) {
+CoverGridHomeUi::Action CoverGridHomeUi::selectedAction(const MappedInputManager& input) {
   pending = -1;
-  const auto touch = routeTouch(input);
-  return touch.snap.touchReleased ? pending : -1;
+  pendingLongPress = false;
+  const auto touch = routeTouch(input, true);
+  if (!touch.snap.touchReleased) return {};
+  return {pending, pendingLongPress};
 }
 
 void CoverGridHomeUi::screenFn(UiScreen& screen, void* user) { static_cast<CoverGridHomeUi*>(user)->draw(screen); }
@@ -228,6 +231,10 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
     return static_cast<CoverGridHomeUi*>(user)->paintFramedCover(target, cover, 0);
   };
   fui::bookCard(screen.frame(), rect, card);
+  // BookCardProps has no inputMask; this long-press-only hit shares the card's
+  // tap rect (taps still reach the card's own hit) and opens the book options.
+  screen.frame().hit(fui::ensureMinTouchRect(rect, screen.frame().device().minTouchSize, screen.frame().screen()),
+                     SELECT, card.value, fui::InputLongPress);
 
   if (selected == 0 && !BoardConfig::hasTouch()) {
     // Button boards only: a vertical accent bar left of the card, cover-height
@@ -260,7 +267,7 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
   grid.columns = GRID_COLUMNS;
   grid.columnLayout = fui::CoverGridColumnLayout::SpaceBetween;
   grid.action = SELECT;
-  grid.inputMask = fui::InputTouch;
+  grid.inputMask = fui::InputTouch | fui::InputLongPress;
   grid.selectedIndex = selected > 0 && selected < static_cast<int>(books->size()) ? selected - 1 : -1;
   // Same thick cover ring as the featured card; the dithered Cell background
   // was easy to miss behind a dark cover.
@@ -297,7 +304,8 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   tabs.count = count;
   tabs.layout = fui::TabBarLayout::SpaceBetween;
   tabs.action = SELECT;
-  tabs.inputMask = fui::InputTouch;
+  // Tabs take the hold too, so holding one still opens it.
+  tabs.inputMask = fui::InputTouch | fui::InputLongPress;
   tabs.iconSize = 32;
   tabs.iconPainterUserData = this;
   tabs.iconPainter = [](fui::DrawTarget&, fui::Rect iconRect, const fui::TabItem& tab, uint8_t, void* user) {

@@ -792,6 +792,12 @@ void setup() {
           ? gpio.isToggleSwitchOn()
           : (wakeLightChordHeld || (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0));
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  // Record the chord's light like any other toggle: with Restore Light on Wake on, the next wake
+  // restores it.
+  if (wokeWithLight && Frontlight.isOn() && SETTINGS.frontlightOn == 0) {
+    SETTINGS.frontlightOn = 1;
+    SETTINGS.saveToFile();
+  }
 
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:

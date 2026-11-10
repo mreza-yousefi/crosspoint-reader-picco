@@ -17,7 +17,7 @@ Details: [User Guide, Controls](USER_GUIDE.md#363-controls).
 - The slide switch is a touch lock toggle (setting **Slide Switch: Touch Reader Controls**). Touch is ignored, the
   side buttons still turn pages, and the lock stays on through sleep.
 - In the light panel, the touch tile (pointer icon) turns the lock on or off. Locking closes the panel.
-- A padlock shows the lock in the top bar and in the top-right corner of the book page.
+- A padlock shows the lock in the top bar and at the top of the book page.
 - Up + Down opens the light panel while touch is locked. Its Home button lets you change the book.
 - Power + Up gives a full screen refresh while touch is locked.
 - Hold Up on Home to unlock touch. The lock comes back when you open a book, hold Down, move the switch, or leave
@@ -44,7 +44,9 @@ Details: [User Guide, Control Center and Frontlight](USER_GUIDE.md#control-cente
 - Warmth reads Off, 1-99%, Full, with no colour jump inside 1-99%.
 - A Home button in the light panel. It takes the place of the Bluetooth button; Bluetooth stays in Settings.
 - Brightness and warmth are greyed out while the light is off.
-- Hold Down while pressing Power to wake with the light on, for reading in the dark.
+- Hold Down while pressing Power to wake with the light on, for reading in the dark. The light is then saved as on, so with
+  Restore Light on Wake on, the next wake keeps it on.
+- Hold - or + in the light panel to keep changing the level.
 
 ### Home Backup
 
@@ -63,11 +65,14 @@ Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
 - Per-book Text Settings (EPUB): font, size, layout and style are saved for each book. A book is recognised by
   its content, so the settings stay when you rename or move the file. Home Backup includes them.
   **Text Settings → Layout → Reset Text Settings** sets the book back to the default values.
-- The position in the whole book, `~page/~total`, shows in the top-right page margin, next to the padlock. It
-  uses the exact page counts of chapters you have already opened with the current text settings and estimates the
-  rest, so it gets more accurate as you read; when every chapter is known, the `~` goes away. It shows when
-  **Book Progress Percentage** is on (Settings → Reader → Customise Status Bar) and the book's screen margin is 20 or
-  more.
+- With enough screen margin, the battery and clock show at the top of the page, as on Home: clock top-left,
+  battery top-right. Otherwise they stay in the bottom status bar.
+- Fast page-turn presses are not lost: each one shows its page in turn (up to 20 can wait).
+- The position in the whole book, `p. 212/380`, shows in the bottom-left corner of the status bar. It counts paper
+  pages: about 1,800 characters each, like a typical paperback, so it does not change with font, size, margins or
+  orientation. It may differ from a specific printed edition. It appears a few seconds after the first time the
+  position can show in a book, once the book's text is counted. Counting pauses while you press buttons or a menu is
+  open. It shows when **Book Progress Percentage** is on (Settings → Reader → Customise Status Bar).
 - The status-bar clock (Settings → Reader → Customise Status Bar → **Clock**) updates at each new minute while you
   read (EPUB, TXT, Markdown), but not during automatic page turn or with a menu open. It is corrected at each Wi-Fi
   time sync and after each Home Backup that does not fail.
@@ -78,6 +83,13 @@ Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).
 
 - A strip shows the battery level at sleep and the progress in the open book. On USB power it shows the charging
   state in place of the battery level.
+
+### Home
+
+Details: [User Guide, Home Screen](USER_GUIDE.md#31-home-screen).
+
+- Hold a book on Home for a menu: **Open** or **Remove from Recents**. Only the Recents entry is removed; the book and
+  its progress stay.
 
 ### Other
 

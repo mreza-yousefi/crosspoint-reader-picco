@@ -627,6 +627,26 @@ if (parsedSize != fileSize) {
 }
 ```
 
+## `paper_pages.bin`
+
+### Version 2
+
+Text counts for the paper-page book position, written by `src/activities/reader/PaperPages.cpp` after each counted
+spine item, so a count stopped by sleep or closing the book goes on from `counted`. Little-endian; the file is ignored
+and counted again when the version, spine count, book size or file size does not match. Version 1 (written only once
+the whole book was counted, without `counted`) is counted again.
+
+```c++
+u8  version;          // 2
+u32 spineCount;       // must equal the book's spine count
+u32 bookSize;         // Epub::getBookSize(): sum of the spine items' sizes (uncompressed for EPUB; file size for TXT/Markdown)
+u32 counted;          // spine items counted so far, from the first; spineCount when the book is done
+struct {
+    u32 readable;     // code points of body text, each whitespace run counted once
+    u32 visible;      // code points of body text, as Section's visible-text offsets count them
+} counts[counted];
+```
+
 ## CLX1 — library index (`.crosspoint/library.idx`)
 
 Written by `lib/LibraryIndex/LibraryBuilder.cpp`, read by `LibraryIndexFile`. One

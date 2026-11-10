@@ -44,6 +44,10 @@ constexpr int16_t kQuickIconSize = 32;
 // One percent per press, on the -/+ buttons and on the physical Left/Right keys
 // alike (both repeat while held), so a level can be set exactly.
 constexpr int BRIGHTNESS_STEP = 1;
+// Holding a - / + button repeats the step after a short delay. Renders in
+// between coalesce, so a slow refresh shows bigger jumps rather than lagging.
+constexpr unsigned long STEP_REPEAT_DELAY_MS = 400;
+constexpr unsigned long STEP_REPEAT_MS = 150;
 // The dimmest setting is 1%, not 0: turning the light off is what the lamp
 // button next to the slider is for, so a 0% "on" level would only be a second,
 // worse way to reach the same place.
@@ -150,11 +154,13 @@ void FrontlightPanelActivity::onToggleEvent(const fui::ActionEvent&, void* user)
 }
 
 void FrontlightPanelActivity::onBrightnessStepEvent(const fui::ActionEvent& event, void* user) {
-  static_cast<FrontlightPanelActivity*>(user)->adjustBrightness(event.value);
+  auto* self = static_cast<FrontlightPanelActivity*>(user);
+  if (!self->stepRepeated) self->adjustBrightness(event.value);
 }
 
 void FrontlightPanelActivity::onWarmthStepEvent(const fui::ActionEvent& event, void* user) {
-  static_cast<FrontlightPanelActivity*>(user)->adjustWarmth(event.value);
+  auto* self = static_cast<FrontlightPanelActivity*>(user);
+  if (!self->stepRepeated) self->adjustWarmth(event.value);
 }
 
 void FrontlightPanelActivity::onTileEvent(const fui::ActionEvent& event, void* user) {
@@ -243,6 +249,37 @@ void FrontlightPanelActivity::toggleLight() {
   requestUpdate();
 }
 
+// A tap steps once on release (the step handlers); a hold also steps every
+// STEP_REPEAT_MS after STEP_REPEAT_DELAY_MS, and its release then adds nothing.
+void FrontlightPanelActivity::repeatHeldStep(const fui::InputSnapshot& snap) {
+  if (!snap.touchHeld) {
+    heldStepAction = fui::NO_ACTION;
+    stepRepeated = false;
+    return;
+  }
+  fui::Interaction hit;
+  if (!app.hitPublished(snap.touchX, snap.touchY, ACTION_BRIGHTNESS_STEP, hit) &&
+      !app.hitPublished(snap.touchX, snap.touchY, ACTION_WARMTH_STEP, hit)) {
+    heldStepAction = fui::NO_ACTION;  // slid off: stop, but keep stepRepeated until release
+    return;
+  }
+  const unsigned long now = millis();
+  if (hit.action != heldStepAction || hit.value != heldStepValue) {
+    heldStepAction = hit.action;
+    heldStepValue = hit.value;
+    nextHeldStepMs = now + STEP_REPEAT_DELAY_MS;
+    return;
+  }
+  if (static_cast<long>(now - nextHeldStepMs) < 0) return;
+  nextHeldStepMs = now + STEP_REPEAT_MS;
+  stepRepeated = true;
+  if (hit.action == ACTION_BRIGHTNESS_STEP) {
+    adjustBrightness(hit.value);
+  } else {
+    adjustWarmth(hit.value);
+  }
+}
+
 void FrontlightPanelActivity::close() { finish(); }
 
 bool FrontlightPanelActivity::handleHomeGesture() {
@@ -252,6 +289,8 @@ bool FrontlightPanelActivity::handleHomeGesture() {
 
 void FrontlightPanelActivity::loop() {
   const auto touch = routeTouch(mappedInput, false, /*routeHeld=*/true);
+  // After routing, so a hold's release reaches the step handlers first.
+  repeatHeldStep(touch.snap);
   if (touch.routed) {
     if (app.invalidated()) requestUpdate();
     if (touch) {

@@ -15,6 +15,7 @@
 #include "ClipSelectionActivity.h"
 #include "EpubReaderMenuActivity.h"
 #include "LinkNoteTitle.h"
+#include "PaperPages.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
 #include "ReaderToolbarUi.h"
@@ -34,11 +35,17 @@ class EpubReaderActivity final : public ReaderActivity {
   std::optional<uint32_t> pendingOffsetJump;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
+  // Page turns queued behind a render: +n forward, -n back, drawn one by one.
   int8_t pendingManualTurn = 0;
+  static constexpr int8_t MAX_QUEUED_TURNS = 20;
+  // +1/-1 for the last click queued while it may still be pending, 0 = none; a chord takes it back.
+  int8_t lastQueuedTurnDir = 0;
+  unsigned long lastQueuedTurnMs = 0;
   int8_t lastButtonTurnDir = 0;  // +1/-1 for the last button page turn, 0 = none
   unsigned long lastButtonTurnMs = 0;
+  // How the last queued click came: touch, or a Bluetooth remote.
   bool pendingManualTurnTouch = false;
-  bool pendingManualTurnRemote = false;  // queued from a Bluetooth remote behind a quiet repaint
+  bool pendingManualTurnRemote = false;
   bool pendingPercentJump = false;
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
@@ -143,7 +150,12 @@ class EpubReaderActivity final : public ReaderActivity {
   // One bounded build step on the loop task, in a frame whose input did nothing. Lays out about
   // BACKGROUND_BUILD_PAGES_PER_TICK pages (one 1 KB parse step may add more) and hands the loop
   // back as soon as a button is down, so a short press is seen before more pages are built.
-  void backgroundBuildTick();
+  // False when no step ran.
+  bool backgroundBuildTick();
+  void queueManualTurn(bool forward, bool touch, bool remote);
+  void turnQueuedPage();
+  // Overlays, child screens and jumps drop the queued turns.
+  void clearQueuedTurns();
   bool anyButtonPressed() const;
   // A background build failed in this spine. The error would likely recur, so from then on the
   // spine is built only as far as the reader goes; pages from earlier build steps stay readable.
@@ -241,35 +253,19 @@ class EpubReaderActivity final : public ReaderActivity {
   bool pageStillShown() const;
   // Anything drawn over the page that a quiet repaint would erase or paint under.
   bool pageObscured() const;
+  // Repaints the page on screen as described above, unless a render is due or the page is covered.
+  void requestQuietRepaint();
   void requestClockRepaint();
-  bool queueTurnBehindQuietRepaint(bool forward) override;
+  bool queueRemoteTurn(bool forward) override;
 
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
-  // Book position: exact page counts of the chapters laid out with bookPositionSpec, indexed by
-  // spine (UINT16_MAX = unknown). 2 bytes per spine item, held while the book is open so a chapter
-  // change needs no sections-dir walk. Filled on open and on a settings change; renderBook adds each
-  // chapter it finalizes. Null after an allocation failure: every other chapter is then estimated.
-  std::unique_ptr<uint16_t[]> bookPositionPages;
-  std::optional<ReaderRenderSpec> bookPositionSpec;  // nullopt = not filled yet
-  // Totals for the chapters other than the current one, summed once per chapter or settings change;
-  // the status bar only adds the current chapter.
-  struct BookPositionScan {
-    int spineIndex = -1;
-    uint32_t pagesBefore = 0;  // exact pages of known chapters before the current one
-    uint32_t bytesBefore = 0;  // spine bytes of unknown chapters before the current one
-    uint32_t pagesAfter = 0;
-    uint32_t bytesAfter = 0;
-    uint32_t ratioPages = 0;  // known chapters large enough to scale from
-    uint32_t ratioBytes = 0;
-  };
-  BookPositionScan bookPositionScan;
+  // Book position in paper pages, "p. 212/380", in the bottom-left corner of the status bar.
+  PaperPages paperPages;
   bool showsBookPosition() const;
-  void updateBookPosition(const ReaderRenderSpec& spec);
-  void fillBookPositionPages(const ReaderRenderSpec& spec);
-  void sumBookPosition();
-  void resetBookPosition();
+  // Counts the next spine item for paperPages in an idle loop frame; repaints once the count is done.
+  void paperPagesTick();
   void renderStatusBar() const;
   void applyOrientation(uint8_t orientation);
   void applyInitialOrientation() override;

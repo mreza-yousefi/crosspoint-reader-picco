@@ -28,6 +28,8 @@ UiAppHost::TouchRoute UiAppHost::routeTouch(const MappedInputManager& input, con
   }
   result.routed = true;
   result.event = route(result.snap);
+  // A hold claims the contact only when it hit; otherwise it releases as a tap.
+  if (result.snap.longPress && result.event) input.suppressScreenTouch();
   return result;
 }
 

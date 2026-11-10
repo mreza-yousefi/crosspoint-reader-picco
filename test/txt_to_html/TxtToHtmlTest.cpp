@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 
@@ -55,6 +56,26 @@ TEST(TxtToHtmlTest, PreservesCacheVersionTagsForBothFormats) {
                 kFooter);
   EXPECT_NE(out.str.find(TxtToHtml::cacheVersionTag("test.MD")), std::string::npos);
   EXPECT_NE(convert("text").find(TxtToHtml::cacheVersionTag("test.txt")), std::string::npos);
+}
+
+TEST(TxtToHtmlTest, ShortWriteStopsReading) {
+  class RefusingPrint : public Print {
+   public:
+    size_t write(uint8_t) override { return 0; }
+    size_t write(const uint8_t*, size_t) override { return 0; }
+  } out;
+  struct Source {
+    int reads = 0;
+  } source;
+  const auto readFn = [](void* ctx, uint8_t* buf, const size_t size) {
+    auto* src = static_cast<Source*>(ctx);
+    if (src->reads == 64) return 0;  // 64 reads: a large file
+    src->reads++;
+    std::fill_n(buf, size, static_cast<uint8_t>('a'));
+    return static_cast<int>(size);
+  };
+  EXPECT_FALSE(TxtToHtml::stream("test.txt", &source, readFn, out));
+  EXPECT_LE(source.reads, 2);
 }
 
 }  // namespace

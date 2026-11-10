@@ -241,13 +241,19 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     title = tr(STR_EXAMPLE_CHAPTER);
   }
 
-  // Anchor the preview as a footer directly above the button hints.
-  GUI.drawStatusBar(renderer, 75, 8, 32, title, metrics.buttonHintsHeight, 0, false);
+  // Anchor the preview as a footer directly above the button hints. When the
+  // reader shows clock and battery in the top margin, they flank the label.
+  const bool statusOnTop = BaseTheme::readerTopMarginFitsStatus(renderer);
+  constexpr bool fillMargin = false;
+  constexpr bool pageBookmarked = false;
+  constexpr bool pageCountEstimated = false;
+  GUI.drawStatusBar(renderer, 75, 8, 32, title, metrics.buttonHintsHeight, 0, fillMargin, pageBookmarked,
+                    pageCountEstimated, statusOnTop);
 
-  renderer.drawCenteredText(UI_10_FONT_ID,
-                            renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
-                                metrics.buttonHintsHeight - verticalPreviewTextPadding,
-                            tr(STR_PREVIEW));
+  const int labelY = renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
+                     metrics.buttonHintsHeight - verticalPreviewTextPadding;
+  renderer.drawCenteredText(UI_10_FONT_ID, labelY, tr(STR_PREVIEW));
+  if (statusOnTop) BaseTheme::drawReaderTopStatus(renderer, labelY);
 
   renderer.displayBuffer();
 }

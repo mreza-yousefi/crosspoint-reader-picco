@@ -178,13 +178,17 @@ void ActivityManager::loop() {
     // panels' etched glass makes unreliable). The reader keeps its clean page
     // (no status bar there to tap). Touch boards only, like the swipe itself.
     bool statusBarTap = false;
+    bool statusBarHold = false;
     if (mappedInput.hasTouch() && (currentActivity->name == "Home" || currentActivity->name == "FileBrowser" ||
                                    currentActivity->name == "Settings" || currentActivity->name == "SettingsList" ||
                                    currentActivity->name == "NetworkModeSelection")) {
+      // The header back button shares this band; its taps stay Back.
+      const auto inStatusBand = [](const int x, const int y) { return y < 44 && !HeaderBackTapTarget::contains(x, y); };
       int tx = 0;
       int ty = 0;
-      // The header back button shares this band; its taps stay Back.
-      statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
+      statusBarTap = mappedInput.wasScreenTapped(tx, ty) && inStatusBand(tx, ty);
+      // A hold there opens it too, before the screen can claim the hold.
+      statusBarHold = !statusBarTap && mappedInput.peekScreenLongPress(tx, ty) && inStatusBand(tx, ty);
     }
     // Up hold under the touch lock on a book page: dictionary lookup
     // with touch paused for its duration (main.cpp re-locks once the reader is
@@ -207,7 +211,9 @@ void ActivityManager::loop() {
     // instead; the open panel pauses the lock (see lightPanelPausesTouchLock).
     const bool sideChord = mappedInput.wasSideButtonChord() && slideSwitchLocksTouch();
     if (!lookupPausesTouchLock && mappedInput.hasTouch() && currentActivity->name != "FrontlightPanel" &&
-        (statusBarTap || sideChord || mappedInput.wasLightPanelGesture())) {
+        (statusBarTap || statusBarHold || sideChord || mappedInput.wasLightPanelGesture())) {
+      // The finger lift must not also tap the panel.
+      if (statusBarHold) mappedInput.suppressScreenTouch();
       haptic_feedback::touchAction();
       auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInput);
       // The definition sheet repaints only itself, not the page above it.
@@ -518,9 +524,10 @@ bool ActivityManager::remoteTurn(const bool forward, const bool chapter) {
   if (!reader || reader->inputOverPage()) {
     return !chapter && remoteClick(forward ? RemoteButton::Next : RemoteButton::Previous);
   }
+  if (!chapter && reader->queueRemoteTurn(forward)) return true;
   if (!remoteTurnAccepted(reader->pageRendered.load(std::memory_order_acquire), RenderLock::peek(),
                           reader->inputOverPage())) {
-    return !chapter && reader->queueTurnBehindQuietRepaint(forward);
+    return false;
   }
   const bool turned = chapter ? reader->skipPages(forward ? 1 : -1) : reader->pageTurn(forward);
   if (turned) requestUpdate();

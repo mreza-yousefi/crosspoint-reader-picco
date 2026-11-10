@@ -168,7 +168,7 @@ void MappedInputManager::updateButtonChords() const {
       downPressedAt = millis();
       hideDownPressFrame = true;
     }
-    if (downPressedAt != 0 && gpio.isPressed(HalGPIO::BTN_DOWN) && millis() - downPressedAt >= UP_HOLD_LOOKUP_MS) {
+    if (downPressedAt != 0 && gpio.isPressed(HalGPIO::BTN_DOWN) && millis() - downPressedAt >= DOWN_HOLD_LOCK_MS) {
       downPressedAt = 0;
       chordMask = bit(HalGPIO::BTN_DOWN);
       chordFormedMs = millis();
@@ -327,15 +327,22 @@ bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
 }
 
 bool MappedInputManager::wasScreenLongPress(int& x, int& y) const {
+  if (!peekScreenLongPress(x, y)) return false;
+  // Consuming the long-press implies acting on it: suppress the rest of the
+  // contact so the finger lift can't also tap whatever the action opened.
+  suppressScreenTouch();
+  return true;
+}
+
+bool MappedInputManager::peekScreenLongPress(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
   if (slideSwitchLocksTouch() || !gpio.wasTouchLongPress(nx, ny)) return false;
-  // Consuming the long-press implies acting on it: suppress the rest of the
-  // contact so the finger lift can't also tap whatever the action opened.
-  gpio.suppressTouchContact();
   renderer.tapToLogical(nx, ny, x, y);
   return true;
 }
+
+void MappedInputManager::suppressScreenTouch() const { gpio.suppressTouchContact(); }
 
 bool MappedInputManager::isScreenTouchHeld(int& x, int& y) const {
   // Live contact position while the finger is down (no tap-slop gate) — drag tracking.
@@ -350,7 +357,7 @@ bool MappedInputManager::wasScreenTouchReleased() const { return gpio.wasTouchRe
 
 MappedInputManager::RowTouch MappedInputManager::rowTouch(int& row, const int top, const int rowStep,
                                                           const int rowCount, const int xStart, const int xEnd,
-                                                          const int rowHeight) const {
+                                                          const int rowHeight, const bool withHold) const {
   if (rowStep <= 0 || rowCount <= 0) return RowTouch::None;
   const auto hit = [&](const int x, const int y) {
     if (x < xStart || x >= xEnd || y < top) return false;
@@ -362,6 +369,10 @@ MappedInputManager::RowTouch MappedInputManager::rowTouch(int& row, const int to
   };
   int x = 0;
   int y = 0;
+  if (withHold && peekScreenLongPress(x, y) && hit(x, y)) {
+    suppressScreenTouch();
+    return RowTouch::Hold;
+  }
   if (wasScreenTouchDown(x, y) && hit(x, y)) return RowTouch::Down;
   if (wasScreenTapped(x, y) && hit(x, y)) return RowTouch::Tap;
   return RowTouch::None;
@@ -369,7 +380,7 @@ MappedInputManager::RowTouch MappedInputManager::rowTouch(int& row, const int to
 
 MappedInputManager::RowTouch MappedInputManager::colTouch(int& col, const int left, const int colStep,
                                                           const int colCount, const int yStart, const int yEnd,
-                                                          const int colWidth) const {
+                                                          const int colWidth, const bool withHold) const {
   if (colStep <= 0 || colCount <= 0) return RowTouch::None;
   const auto hit = [&](const int x, const int y) {
     if (y < yStart || y >= yEnd || x < left) return false;
@@ -381,6 +392,10 @@ MappedInputManager::RowTouch MappedInputManager::colTouch(int& col, const int le
   };
   int x = 0;
   int y = 0;
+  if (withHold && peekScreenLongPress(x, y) && hit(x, y)) {
+    suppressScreenTouch();
+    return RowTouch::Hold;
+  }
   if (wasScreenTouchDown(x, y) && hit(x, y)) return RowTouch::Down;
   if (wasScreenTapped(x, y) && hit(x, y)) return RowTouch::Tap;
   return RowTouch::None;

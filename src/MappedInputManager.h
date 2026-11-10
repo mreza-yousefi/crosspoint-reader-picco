@@ -71,6 +71,11 @@ class MappedInputManager {
   // the long-press opened. The SDK owns that latch and self-clears it once the
   // contact ends.
   bool wasScreenLongPress(int& x, int& y) const;
+  // The same long-press without claiming it, for hit-tested holds: claim it
+  // with suppressScreenTouch() only on a hit, so a hold on nothing still
+  // releases as a tap.
+  bool peekScreenLongPress(int& x, int& y) const;
+  void suppressScreenTouch() const;
   bool isScreenTouchHeld(int& x, int& y) const;
   // Raw release edge, also true when the contact ended in a swipe or drag-off
   // (which wasScreenTapped never reports). InputSnapshot builders forward it
@@ -81,13 +86,17 @@ class MappedInputManager {
   // geometry — the shared hit-test for lists the theme helpers above do not
   // cover (custom row heights, option prompts, menus). Down = a held
   // tap-candidate is on a row (update the selection highlight); Tap = a tap
-  // released on one (activate). rowHeight limits the hit to the top rowHeight
-  // px of each step (0 = the full step, no gap band).
-  enum class RowTouch : uint8_t { None, Down, Tap };
+  // released on one (activate); Hold = withHold and a long-press on one (the
+  // contact is claimed). rowHeight limits the hit to the top rowHeight px of
+  // each step (0 = the full step, no gap band).
+  enum class RowTouch : uint8_t { None, Down, Tap, Hold };
   RowTouch rowTouch(int& row, int top, int rowStep, int rowCount, int xStart = 0, int xEnd = INT32_MAX,
-                    int rowHeight = 0) const;
+                    int rowHeight = 0, bool withHold = false) const;
   // Horizontal variant for side-by-side button pairs (confirmation prompts).
-  RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
+  RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0,
+                    bool withHold = false) const;
+  // Confirm hold that opens a row's options (Home books, Library rows).
+  static constexpr unsigned long ROW_HOLD_MS = 1000;
 
   SwipeDir wasSwipe(int* startX = nullptr, int* startY = nullptr) const;
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
@@ -119,7 +128,7 @@ class MappedInputManager {
   bool isButtonChordHeld() const { return chordMask != 0; }
   // Hides the held buttons (bits of HalGPIO indices) until all are up, release frames included.
   void hideButtonsUntilReleased(const uint8_t gpioMask) const { chordMask |= gpioMask; }
-  // Up held ~0.2 s under the touch lock (dictionary); the hold is then hidden.
+  // Up held ~0.4 s under the touch lock (dictionary); the hold is then hidden.
   bool wasUpHold() const { return upHoldFrame; }
   // Down held ~0.2 s while the touch lock is overridden (lock again).
   bool wasDownHold() const { return downHoldFrame; }
@@ -179,7 +188,8 @@ class MappedInputManager {
   mutable uint8_t chordMask = 0;  // raw button bits hidden while a chord is held
   mutable Chord chordFrame = Chord::None;
   mutable unsigned long chordFormedMs = 0;
-  static constexpr unsigned long UP_HOLD_LOOKUP_MS = 200;
+  static constexpr unsigned long UP_HOLD_LOOKUP_MS = 400;
+  static constexpr unsigned long DOWN_HOLD_LOCK_MS = 200;
   mutable unsigned long upPressedAt = 0;
   mutable bool upHoldFrame = false;
   mutable bool hideUpPressFrame = false;    // locked Up press, held back

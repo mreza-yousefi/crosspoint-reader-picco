@@ -25,11 +25,11 @@ constexpr StrId menuDescs[NetworkModeSelectionActivity::MENU_ITEM_COUNT] = {
     StrId::STR_BACKUP_DESC,
 };
 constexpr UIIcon menuIcons[NetworkModeSelectionActivity::MENU_ITEM_COUNT] = {
-    UIIcon::Wifi,     UIIcon::Library, UIIcon::Hotspot,
+    UIIcon::Wifi, UIIcon::Library, UIIcon::Hotspot,
 #if FREEINK_CAP_USB_MSC
     UIIcon::Usb,
 #endif
-    UIIcon::Transfer,
+    UIIcon::Sync,
 };
 // Row index -> mode; rows are not a prefix of NetworkMode once optional rows are compiled out.
 constexpr NetworkMode menuModes[NetworkModeSelectionActivity::MENU_ITEM_COUNT] = {

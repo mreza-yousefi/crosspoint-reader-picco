@@ -10,6 +10,7 @@
 #include <HalDisplay.h>
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -211,16 +212,10 @@ void moveFinishedBookToReadFolder(const std::string& srcPath, const std::string&
   }
 }
 
-// A button contact is closed right now. Reads the Xteink ADC ladder, power pin, and T5S3 expander
-// key only; on other boards a press stops the build once the loop has debounced it.
-bool buttonContactClosed() { return gpio.rawInputActive(); }
-
-// Chapters under 3 pages (cover, title pages) or under 300 bytes per page (mostly images or
-// markup) are too small to scale the book position from.
-bool scalesBookPosition(const uint64_t pages, const uint64_t bytes) {
-  constexpr uint64_t minBytesPerPage = 300;
-  return pages >= 3 && bytes / pages >= minBytesPerPage;
-}
+// A button contact is closed or a touch report is pending right now (HalGPIO::rawInputActive()).
+// Input that only the I2C touch poll sees stops the work once the loop has debounced it.
+// Locked touch is not input: a resting palm must not keep stopping the work.
+bool buttonContactClosed() { return gpio.rawInputActive(!slideSwitchLocksTouch()); }
 
 }  // namespace
 
@@ -337,7 +332,7 @@ int EpubReaderActivity::bookPercentFor(const ChapterPosition& position) const {
 }
 
 void EpubReaderActivity::openReaderMenu() {
-  pendingManualTurn = 0;
+  clearQueuedTurns();
   if (usesToolbarMenu()) {
     // Reached from a child activity's result handler (footnotes, bookmarks,
     // go-to-percent... cancelled back to the menu), so the framebuffer holds
@@ -428,12 +423,12 @@ bool EpubReaderActivity::anyButtonPressed() const {
   return false;
 }
 
-void EpubReaderActivity::backgroundBuildTick() {
+bool EpubReaderActivity::backgroundBuildTick() {
   RenderLock lock(RenderLock::Mode::Try);
   // Not under an open toolbar or panel: those repaint straight onto the page in the framebuffer.
-  if (!lock.ownsLock() || overlay != Overlay::None || !backgroundBuildWanted()) return;
+  if (!lock.ownsLock() || overlay != Overlay::None || !backgroundBuildWanted()) return false;
   // A button is down or a page turn is queued: the next loop frames act on it first.
-  if (buttonContactClosed() || anyButtonPressed() || pendingManualTurn != 0 || !buildTickHeapGate()) return;
+  if (buttonContactClosed() || anyButtonPressed() || pendingManualTurn != 0 || !buildTickHeapGate()) return false;
   // A build step can lend the framebuffer (image probes), which hands it back white while the
   // panel still shows the page; redraw so nothing is later painted over the blank buffer.
   const uint32_t loansBefore = renderer.frameBufferLoanCount();
@@ -451,9 +446,11 @@ void EpubReaderActivity::backgroundBuildTick() {
   } else if (section->isBuildComplete() && applyDeferredReposition()) {
     requestUpdate();
   }
+  return true;
 }
 
 void EpubReaderActivity::openDictionaryWordSelect() {
+  clearQueuedTurns();
   if (SETTINGS.dictionaryName[0] == '\0') {
     showDictionaryMessage = true;
     dictionaryMessageTime = millis();
@@ -475,6 +472,7 @@ bool EpubReaderActivity::startDictionaryLookup() {
 void EpubReaderActivity::startClipSelection(const int initialX, const int initialY,
                                             const ClipSelectionActivity::Mode mode,
                                             const ClipSelectionActivity::Selection* preselect) {
+  clearQueuedTurns();
   if (!section || !epub || section->currentPage < 0 || section->currentPage >= section->pageCount) return;
 
   const int pageNumber = section->currentPage;
@@ -622,6 +620,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
 }
 
 void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
+  clearQueuedTurns();
   if (!section || currentPageFootnotes.empty()) return;
   if (currentPageFootnotes.size() == 1) {
     navigateToHref(currentPageFootnotes[0].href, true);
@@ -658,6 +657,7 @@ void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
 }
 
 void EpubReaderActivity::openClippings() {
+  clearQueuedTurns();
   if (!CLIPPINGS.hasClippings()) {
     requestUpdate();
     return;
@@ -819,7 +819,7 @@ void EpubReaderActivity::loop() {
   int selectionY = 0;
   if (!atEndOfBook && SETTINGS.touchReaderControls && mappedInput.wasScreenLongPress(selectionX, selectionY)) {
     automaticPageTurnActive = false;
-    pendingManualTurn = 0;
+    clearQueuedTurns();
     startClipSelection(selectionX, selectionY);
     return;
   }
@@ -970,7 +970,7 @@ void EpubReaderActivity::loop() {
     // Toolbar style: the page is on screen and in the framebuffer, so paint the
     // toolbar over it (one refresh) instead of pushing a full-screen menu.
     if (usesToolbarMenu() && section) {
-      pendingManualTurn = 0;
+      clearQueuedTurns();
       openOverlay(Overlay::Toolbar);
     } else {
       openReaderMenu();
@@ -1009,31 +1009,19 @@ void EpubReaderActivity::loop() {
 
   constexpr unsigned long kMinManualTurnGapMs = 200;
   const bool turnGuardActive = RenderLock::peek() || (millis() - lastPageTurnTime) < kMinManualTurnGapMs;
-  if (pendingManualTurn != 0 && !turnGuardActive) {
-    if (!section) {
-      pendingManualTurn = 0;
-      return;
-    }
-    const bool forward = pendingManualTurn > 0;
-    pendingManualTurn = 0;
-    const bool succeeded = pageTurn(forward);
-    notePageTurn(forward, succeeded);
-    if (succeeded && pendingManualTurnTouch) haptic_feedback::touchAction();
-    const bool byButton = !pendingManualTurnTouch && !pendingManualTurnRemote;
-    lastButtonTurnDir = succeeded && byButton ? (forward ? 1 : -1) : 0;
-    lastButtonTurnMs = millis();
-    pendingManualTurnTouch = false;
-    pendingManualTurnRemote = false;
-    requestUpdate();
-    return;
-  }
+  // A queued turn also waits until the last turn's render has started.
+  const bool queuedTurnReady = pendingManualTurn != 0 && !turnGuardActive && !fullRenderPending;
 
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   prevTriggered = prevTriggered || touch.prev;
   nextTriggered = nextTriggered || touch.next;
   if (!prevTriggered && !nextTriggered) {
-    // Nothing to act on in this frame: build more of the chapter.
-    backgroundBuildTick();
+    if (queuedTurnReady) {
+      turnQueuedPage();
+      return;
+    }
+    // Nothing to act on in this frame: build more of the chapter, or else count paper pages.
+    if (!backgroundBuildTick()) paperPagesTick();
     return;
   }
 
@@ -1066,19 +1054,20 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // Behind a render (a new chapter's too) or earlier queued turns: queue it, so
+  // every click shows a page, in order.
+  if (turnGuardActive || pendingManualTurn != 0) {
+    queueManualTurn(!prevTriggered, touch.prev || touch.next, false);
+    if (queuedTurnReady && pendingManualTurn != 0) turnQueuedPage();
+    return;
+  }
+
   if (!section) {
     requestUpdate();
     return;
   }
 
-  if (turnGuardActive) {
-    LOG_DBG("ERS", "Page turn %s queued", prevTriggered ? "back" : "forward");
-    pendingManualTurn = prevTriggered ? -1 : 1;
-    pendingManualTurnTouch = touch.prev || touch.next;
-    pendingManualTurnRemote = false;
-    return;
-  }
-
+  lastQueuedTurnDir = 0;
   const bool succeeded = pageTurn(!prevTriggered);
   notePageTurn(!prevTriggered, succeeded);
   if (succeeded && (touch.prev || touch.next)) haptic_feedback::touchAction();
@@ -1089,11 +1078,55 @@ void EpubReaderActivity::loop() {
   requestUpdate();
 }
 
+// A click against the queued direction cancels one queued turn. The touch/remote flags follow the
+// last click for the whole queue (haptics, chord undo); mixed queues are rare enough.
+void EpubReaderActivity::queueManualTurn(const bool forward, const bool touch, const bool remote) {
+  const int8_t dir = forward ? 1 : -1;
+  pendingManualTurn =
+      static_cast<int8_t>(std::clamp<int>(pendingManualTurn + dir, -MAX_QUEUED_TURNS, MAX_QUEUED_TURNS));
+  lastQueuedTurnDir = dir;
+  lastQueuedTurnMs = millis();
+  pendingManualTurnTouch = touch;
+  pendingManualTurnRemote = remote;
+  LOG_DBG("ERS", "Page turn %s queued (%d)", forward ? "forward" : "back", pendingManualTurn);
+}
+
+void EpubReaderActivity::clearQueuedTurns() {
+  pendingManualTurn = 0;
+  lastQueuedTurnDir = 0;
+  pendingManualTurnTouch = false;
+  pendingManualTurnRemote = false;
+}
+
+// Turns one queued page; the next waits for its render, like a fresh click.
+void EpubReaderActivity::turnQueuedPage() {
+  if (!section) {
+    clearQueuedTurns();
+    return;
+  }
+  const bool forward = pendingManualTurn > 0;
+  pendingManualTurn += forward ? -1 : 1;
+  const bool succeeded = pageTurn(forward);
+  notePageTurn(forward, succeeded);
+  if (succeeded && pendingManualTurnTouch) haptic_feedback::touchAction();
+  const bool byButton = !pendingManualTurnTouch && !pendingManualTurnRemote;
+  lastButtonTurnDir = succeeded && byButton ? (forward ? 1 : -1) : 0;
+  lastButtonTurnMs = millis();
+  // Nothing more to turn at the book's edges. An empty queue has turned the last click's page.
+  if (!succeeded || isAtEndOfBook() || pendingManualTurn == 0) clearQueuedTurns();
+  requestUpdate();
+}
+
 bool EpubReaderActivity::undoRecentButtonPageTurn(const unsigned long windowMs) {
-  // A button turn queued behind a render has not happened yet: just drop it.
-  if (pendingManualTurn != 0 && !pendingManualTurnTouch && !pendingManualTurnRemote) {
-    LOG_DBG("ERS", "Chord: dropped queued page turn");
-    pendingManualTurn = 0;
+  // The chord's first press was queued and has not turned a page yet: take back exactly that click
+  // (it may have cancelled an earlier queued turn, which then comes back).
+  if (lastQueuedTurnDir != 0) {
+    if (pendingManualTurnTouch || pendingManualTurnRemote || millis() - lastQueuedTurnMs > windowMs) return false;
+    pendingManualTurn = static_cast<int8_t>(
+        std::clamp<int>(pendingManualTurn - lastQueuedTurnDir, -MAX_QUEUED_TURNS, MAX_QUEUED_TURNS));
+    LOG_DBG("ERS", "Chord: took back queued page turn (%d left)", pendingManualTurn);
+    lastQueuedTurnDir = 0;
+    if (pendingManualTurn == 0) clearQueuedTurns();
     return true;
   }
   LOG_DBG("ERS", "Chord: last button turn %d, %lu ms ago", lastButtonTurnDir, millis() - lastButtonTurnMs);
@@ -1107,6 +1140,7 @@ bool EpubReaderActivity::undoRecentButtonPageTurn(const unsigned long windowMs) 
 }
 
 void EpubReaderActivity::jumpToPercent(int percent) {
+  clearQueuedTurns();
   if (!epub) return;
   const size_t bookSize = epub->getBookSize();
   if (bookSize == 0) return;
@@ -1147,6 +1181,7 @@ void EpubReaderActivity::jumpToPercent(int percent) {
 }
 
 void EpubReaderActivity::applyProgressChange(const ProgressChangeResult& sync) {
+  clearQueuedTurns();
   if (sync.hasVisibleTextOffset && sync.spineIndex >= 0 && sync.spineIndex < epub->getSpineItemsCount()) {
     RenderLock lock;
     clearDeferredReposition();
@@ -1328,7 +1363,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           section.reset();
           epub->clearCache();
           epub->setupCacheDir();
-          resetBookPosition();
           if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
             LOG_ERR("ERS", "Failed to save progress before cache clear");
           }
@@ -1389,6 +1423,7 @@ unsigned long EpubReaderActivity::confirmLongPressThreshold() const {
 }
 
 bool EpubReaderActivity::launchKOReaderSync() {
+  clearQueuedTurns();
   flushReaderSession();
 
   // Without a KOReader server the sync activity only brings the device online
@@ -1543,6 +1578,7 @@ bool EpubReaderActivity::pageTurn(bool isForwardTurn) {
 }
 
 bool EpubReaderActivity::skipPages(int amount) {
+  clearQueuedTurns();
   if (!section) return false;
   bleturner::acknowledgeLinkNote();
   if (amount > 0) {
@@ -1654,11 +1690,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   ReaderActivity::render(std::move(lock));
 }
 
-bool EpubReaderActivity::queueTurnBehindQuietRepaint(const bool forward) {
-  if (!quietRepaintRunning) return false;
-  pendingManualTurn = forward ? 1 : -1;
-  pendingManualTurnTouch = false;
-  pendingManualTurnRemote = true;
+bool EpubReaderActivity::queueRemoteTurn(const bool forward) {
+  if (!quietRepaintRunning && pendingManualTurn == 0) return false;
+  queueManualTurn(forward, false, true);
   return true;
 }
 
@@ -1680,21 +1714,23 @@ bool EpubReaderActivity::pageObscured() const {
          showFontDamagedMessage || showClippingMessage || pendingSyncSaveError || popupOnGlass;
 }
 
-// A new minute on the status-bar clock repaints the page quietly. Not during
-// automatic page turn: a render restarts its interval.
+// Not during automatic page turn: a render restarts its interval.
+void EpubReaderActivity::requestQuietRepaint() {
+  if (automaticPageTurnActive || pageObscured() || fullRenderPending || quietRepaintRequested) return;
+  quietRepaintRequested = true;
+  ReaderActivity::requestUpdate();  // the override would cancel the request
+}
+
+// A new minute on the status-bar clock repaints the page quietly.
 void EpubReaderActivity::requestClockRepaint() {
-  if (automaticPageTurnActive || pageObscured() || fullRenderPending || quietRepaintRequested ||
-      !SETTINGS.statusBarSpec().showsClock() || !halClock.isAvailable()) {
-    return;
-  }
+  if (!SETTINGS.statusBarSpec().showsClock() || !halClock.isAvailable()) return;
   RenderLock lock(RenderLock::Mode::Try);
   if (!lock.ownsLock() || clockMinuteShown < 0 || !pageStillShown()) return;
   // Same source and cache as the status bar, so the repaint draws this minute.
   uint8_t hour = 0;
   uint8_t minute = 0;
   if (!halClock.getTime(hour, minute) || hour * 60 + minute == clockMinuteShown) return;
-  quietRepaintRequested = true;
-  ReaderActivity::requestUpdate();  // the override would cancel the request
+  requestQuietRepaint();
 }
 
 bool EpubReaderActivity::remoteShortcut(const bool readerMenu) {
@@ -1999,7 +2035,7 @@ void EpubReaderActivity::renderBook() {
     section->currentPage = section->pageCount - 1;
   }
 
-  if (showsBookPosition()) updateBookPosition(renderSpec);
+  if (showsBookPosition()) paperPages.open(*epub);
 
   applyDeferredReposition();
 
@@ -2037,7 +2073,6 @@ void EpubReaderActivity::renderBook() {
       section->abandonBuild();
       section->clearCache();
       section.reset();
-      resetBookPosition();  // the table may hold the deleted file's count
       if (giveUp) {
         LOG_ERR("ERS", "Page load retry limit reached, aborting");
         pageLoadRetryCount = 0;
@@ -2579,77 +2614,48 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
           static_cast<unsigned>(chapterClippings), static_cast<unsigned>(highlightedWords), millis() - started);
 }
 
-bool EpubReaderActivity::showsBookPosition() const {
-  // The page text starts screenMargin below the viewable top; the label needs its line box to fit above it.
-  return SETTINGS.statusBarSpec().showBookProgressPercent &&
-         SETTINGS.screenMargin > renderer.getLineHeight(SMALL_FONT_ID);
-}
+bool EpubReaderActivity::showsBookPosition() const { return SETTINGS.statusBarSpec().showBookProgressPercent; }
 
-void EpubReaderActivity::updateBookPosition(const ReaderRenderSpec& spec) {
-  const bool specChanged = bookPositionSpec != spec;
-  if (specChanged) fillBookPositionPages(spec);
-  if (bookPositionPages && !section->isBuilding() && !section->isPartial()) {
-    bookPositionPages[currentSpineIndex] = section->pageCount;
-  }
-  if (specChanged || bookPositionScan.spineIndex != currentSpineIndex) sumBookPosition();
-}
-
-// One sections-dir walk that reads the header of each cached section file.
-void EpubReaderActivity::fillBookPositionPages(const ReaderRenderSpec& spec) {
-  const unsigned long startMs = millis();
-  bookPositionSpec = spec;
-  const int count = epub->getSpineItemsCount();
-  if (!bookPositionPages) bookPositionPages = makeUniqueNoThrow<uint16_t[]>(count);
-  if (!bookPositionPages) {
-    LOG_ERR("ERS", "Book position table: OOM (%u bytes)", static_cast<unsigned>(count * sizeof(uint16_t)));
+void EpubReaderActivity::paperPagesTick() {
+  // After the open chapter's build, with its page on the glass, no render due, the radio's heap
+  // free and no input pending.
+  if (!paperPages.counting() || overlay != Overlay::None || fullRenderPending || quietRepaintRequested ||
+      bleturner::holdsHeap()) {
     return;
   }
-  std::fill_n(bookPositionPages.get(), count, UINT16_MAX);
-  Section::readCachedPageCounts(*epub, spec, bookPositionPages.get(), count);
-  LOG_DBG("ERS", "Book position table: %d chapters read in %lu ms", count, millis() - startMs);
-}
-
-void EpubReaderActivity::sumBookPosition() {
-  BookPositionScan scan;
-  scan.spineIndex = currentSpineIndex;
-  const uint16_t* pages = bookPositionPages.get();
-  const int count = epub->getSpineItemsCount();
-  uint32_t previousEnd = 0;
-  for (int i = 0; i < count; i++) {
-    const uint32_t end = epub->getCumulativeSpineItemSize(i);
-    const uint32_t bytes = end > previousEnd ? end - previousEnd : 0;
-    previousEnd = std::max(previousEnd, end);
-    if (i == currentSpineIndex) continue;
-    const bool before = i < currentSpineIndex;
-    if (!pages || pages[i] == UINT16_MAX) {
-      (before ? scan.bytesBefore : scan.bytesAfter) += bytes;
-      continue;
-    }
-    (before ? scan.pagesBefore : scan.pagesAfter) += pages[i];
-    if (scalesBookPosition(pages[i], bytes)) {
-      scan.ratioPages += pages[i];
-      scan.ratioBytes += bytes;
-    }
+  RenderLock lock(RenderLock::Mode::Try);
+  if (!lock.ownsLock() || backgroundBuildWanted() || !pageStillShown() || !showsBookPosition()) return;
+  if (buttonContactClosed() || anyButtonPressed() || pendingManualTurn != 0 || !PaperPages::heapAllowsCount()) {
+    return;
   }
-  bookPositionScan = scan;
-}
-
-void EpubReaderActivity::resetBookPosition() {
-  bookPositionPages.reset();
-  bookPositionSpec.reset();
-  bookPositionScan = {};
+  HalPowerManager::Lock powerLock;  // full CPU clock: the count holds the loop
+  if (!paperPages.countNext(*epub, &buttonContactClosed)) return;
+  // Show the label.
+  requestQuietRepaint();
 }
 
 void EpubReaderActivity::renderStatusBar() const {
   int top, right, bottom, left;
   renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-  // Touch lock padlock in the top-right page margin; the book position sits left of it.
-  const int lockX = renderer.getScreenWidth() - right - 13;
+  // With room in the top page margin, clock, battery and touch lock padlock sit
+  // there as in the Home header (padlock centred); the book position ends the
+  // top-right cluster on the left. Otherwise the padlock takes the top-right
+  // corner and the clock and battery stay in the bottom bar.
+  const bool statusOnTop = BaseTheme::readerTopMarginFitsStatus(renderer);
+  const int lockX = statusOnTop ? (renderer.getScreenWidth() - 9) / 2 : renderer.getScreenWidth() - right - 13;
   if (slideSwitchTouchLockEngaged()) {
     const int y = top + 3;
     renderer.drawRect(lockX + 2, y, 5, 6, true);  // shackle
     renderer.fillRect(lockX, y + 5, 9, 7, true);  // body
   }
+  const auto sb = SETTINGS.statusBarSpec();
+  // The minute the clock drawn below shows (same cached RTC read as the theme), for
+  // requestClockRepaint().
+  uint8_t clockHour = 0;
+  uint8_t clockMinute = 0;
+  clockMinuteShown = sb.showsClock() && halClock.getTime(clockHour, clockMinute) ? clockHour * 60 + clockMinute : -1;
+
+  if (statusOnTop) BaseTheme::drawReaderTopStatus(renderer, top);
   const int currentPage = section ? section->currentPage + 1 : 1;
   const float pageCount = section ? section->estimatedTotalPages() : 1;
   const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
@@ -2657,44 +2663,19 @@ void EpubReaderActivity::renderStatusBar() const {
 
   std::string title;
   int textYOffset = 0;
-  const auto sb = SETTINGS.statusBarSpec();
 
-  // The minute the theme draws below (same cached RTC read), for requestClockRepaint().
-  uint8_t clockHour = 0;
-  uint8_t clockMinute = 0;
-  clockMinuteShown = sb.showsClock() && halClock.getTime(clockHour, clockMinute) ? clockHour * 60 + clockMinute : -1;
-
-  // Book position "page/total": exact pages of chapters already laid out with these settings,
-  // the rest scaled by their pages per spine byte. "~" marks an estimate.
-  if (section && epub && showsBookPosition() && bookPositionScan.spineIndex == currentSpineIndex) {
-    const BookPositionScan& scan = bookPositionScan;
-    const uint64_t before = currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
-    const uint64_t through = epub->getCumulativeSpineItemSize(currentSpineIndex);
-    const uint64_t chapterPages = section->estimatedTotalPages();
-    const uint64_t chapterBytes = through > before ? through - before : 0;
-    uint64_t ratioPages = scan.ratioPages;
-    uint64_t ratioBytes = scan.ratioBytes;
-    // The current chapter's estimate moves while it builds: scale from it only when no other chapter can.
-    if (ratioBytes == 0 && scalesBookPosition(chapterPages, chapterBytes)) {
-      ratioPages += chapterPages;
-      ratioBytes += chapterBytes;
-    }
-    const bool othersKnown = scan.bytesBefore == 0 && scan.bytesAfter == 0;
-    if (othersKnown || ratioBytes > 0) {
-      const auto estimate = [ratioPages, ratioBytes](const uint64_t bytes) -> uint64_t {
-        return ratioBytes > 0 ? (bytes * ratioPages + ratioBytes / 2) / ratioBytes : 0;
-      };
-      const uint64_t pagesBefore = scan.pagesBefore + estimate(scan.bytesBefore);
-      const uint64_t bookPage = pagesBefore + section->currentPage + 1;
-      const uint64_t bookPages =
-          std::max(bookPage, pagesBefore + chapterPages + scan.pagesAfter + estimate(scan.bytesAfter));
-      const bool exact = othersKnown && !section->isBuilding() && !section->isPartial();
-      char position[32];
-      snprintf(position, sizeof(position), exact ? "%lu/%lu" : "~%lu/~%lu", static_cast<unsigned long>(bookPage),
-               static_cast<unsigned long>(bookPages));
-      constexpr int lockGap = 4;
-      renderer.drawText(SMALL_FONT_ID, lockX - lockGap - renderer.getTextWidth(SMALL_FONT_ID, position), top, position);
-    }
+  // Paper page "p. 212/380", once the book's text is counted. The page's exact start in the chapter
+  // text when it is loaded, else its share of the chapter's pages.
+  char position[32] = "";
+  if (section && showsBookPosition() && paperPages.ready()) {
+    const bool pageLoaded = section->currentPage >= 0 && section->currentPage < section->pageCount;
+    const uint32_t chapterVisible = paperPages.visibleChars(currentSpineIndex);
+    const uint32_t paperPage =
+        pageLoaded && currentPageVisibleOffset.has_value() && chapterVisible > 0
+            ? paperPages.pageAt(currentSpineIndex, *currentPageVisibleOffset, chapterVisible)
+            : paperPages.pageAt(currentSpineIndex, section->currentPage, section->estimatedTotalPages());
+    snprintf(position, sizeof(position), tr(STR_PAPER_PAGE_POSITION), static_cast<unsigned>(paperPage),
+             static_cast<unsigned>(paperPages.totalPages()));
   }
 
   const auto note = linkNoteTitle.draw(sb.showsTitle(), bleturner::linkNote());
@@ -2727,7 +2708,7 @@ void EpubReaderActivity::renderStatusBar() const {
   }
 
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
-                    section ? section->isBuilding() : false);
+                    section ? section->isBuilding() : false, statusOnTop, position);
 }
 
 // ---------------------------------------------------------------------------
@@ -2861,6 +2842,7 @@ void EpubReaderActivity::settleOverlayRefresh() {
 }
 
 void EpubReaderActivity::openOverlay(Overlay target) {
+  clearQueuedTurns();
   mappedInput.resetHomeButtonInput();
   const Overlay previous = overlay;
   overlay = target;
@@ -3469,6 +3451,7 @@ void EpubReaderActivity::activateMoreRow(int row) {
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {
+  clearQueuedTurns();
   if (!epub) return;
 
   std::string anchor;
@@ -3558,6 +3541,7 @@ void EpubReaderActivity::loadLinkStack() {
 }
 
 void EpubReaderActivity::restoreSavedPosition() {
+  clearQueuedTurns();
   if (footnoteDepth <= 0) return;
   footnoteDepth--;
   const auto& pos = savedPositions[footnoteDepth];
@@ -3585,6 +3569,7 @@ void EpubReaderActivity::loadCachedBookmarks() {
 }
 
 void EpubReaderActivity::addBookmark() {
+  clearQueuedTurns();
   if (!section || !epub) return;
   LOG_DBG("ERS", "Toggle bookmark at spine %d, page %d", currentSpineIndex, section ? section->currentPage : -1);
   int currentPage;

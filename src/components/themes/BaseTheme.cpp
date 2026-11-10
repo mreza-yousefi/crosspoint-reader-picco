@@ -54,6 +54,43 @@ void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int 
   }
 }
 
+// Battery icon top that centres it on the small font's digits drawn at textY
+// (their ink sits a font-dependent distance below the line top).
+int batteryIconY(const GfxRenderer& renderer, const int textY, const int iconHeight) {
+  const auto fontIt = renderer.getFontMap().find(SMALL_FONT_ID);
+  if (fontIt != renderer.getFontMap().end()) {
+    if (const auto glyph = fontIt->second.getGlyph('0', EpdFontFamily::REGULAR)) {
+      const int inkTop = renderer.getFontAscenderSize(SMALL_FONT_ID) - static_cast<int>(glyph->top);
+      return textY + inkTop + (static_cast<int>(glyph->height) - iconHeight) / 2;
+    }
+  }
+  return textY + 6;
+}
+
+// Battery glyph, charge state and percent label as the header status line draws them.
+freeink::ui::BatteryIndicatorProps headerBatteryProps(const bool showPercent) {
+  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
+  freeink::ui::BatteryIndicatorProps battery;
+  // Status text stays at the fixed small font on every screen: FONT_LABEL is
+  // bound to SMALL_FONT_ID by makeUiTarget() (FUI screens) and drawHeader()
+  // (passive frames), while the uiScale FONT_SMALL is for list subtitles.
+  battery.text.font = freeink::ui::GfxRendererTarget::FONT_LABEL;
+  const uint16_t percentage = powerManager.getBatteryPercentage();
+  battery.percent = static_cast<uint8_t>(percentage > 100 ? 100 : percentage);
+  battery.charging = gpio.isUsbConnected();
+  // Static label buffer: status lines draw on the single render task, and the
+  // string only needs to outlive the component call that consumes it.
+  static char percentText[8];
+  if (showPercent) {
+    snprintf(percentText, sizeof(percentText), "%u%%", static_cast<unsigned>(percentage));
+    battery.label = percentText;
+  }
+  battery.glyphWidth = static_cast<int16_t>(metrics.batteryWidth);
+  battery.glyphHeight = static_cast<int16_t>(metrics.batteryHeight);
+  battery.gap = BaseTheme::batteryPercentSpacing;
+  return battery;
+}
+
 }  // namespace
 
 void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight) {
@@ -112,16 +149,7 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
 void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  // Center the icon on the digits' ink, which sits a font-dependent distance
-  // below the text line's top (the font scales with uiScale).
-  int y = rect.y + 6;
-  const auto fontIt = renderer.getFontMap().find(SMALL_FONT_ID);
-  if (fontIt != renderer.getFontMap().end()) {
-    if (const auto glyph = fontIt->second.getGlyph('0', EpdFontFamily::REGULAR)) {
-      const int inkTop = renderer.getFontAscenderSize(SMALL_FONT_ID) - static_cast<int>(glyph->top);
-      y = rect.y + inkTop + (static_cast<int>(glyph->height) - rect.height) / 2;
-    }
-  }
+  const int y = batteryIconY(renderer, rect.y, rect.height);
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
@@ -338,25 +366,9 @@ void BaseTheme::applyHeaderStatus(const GfxRenderer& renderer, freeink::ui::Head
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   auto& status = props.status;
 
-  // Status text stays at the fixed small font on every screen: FONT_LABEL is
-  // bound to SMALL_FONT_ID by makeUiTarget() (FUI screens) and drawHeader()
-  // (passive frames), while the uiScale FONT_SMALL is for list subtitles.
-  status.battery.text.font = freeink::ui::GfxRendererTarget::FONT_LABEL;
-
   status.showBattery = true;
-  const uint16_t percentage = powerManager.getBatteryPercentage();
-  status.battery.percent = static_cast<uint8_t>(percentage > 100 ? 100 : percentage);
-  status.battery.charging = gpio.isUsbConnected();
-  // Static label buffers: headers draw on the single render task, and the
-  // strings only need to outlive the fui::header() call that consumes them.
-  static char percentText[8];
-  if (SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS) {
-    snprintf(percentText, sizeof(percentText), "%u%%", static_cast<unsigned>(percentage));
-    status.battery.label = percentText;
-  }
-  status.battery.glyphWidth = static_cast<int16_t>(metrics.batteryWidth);
-  status.battery.glyphHeight = static_cast<int16_t>(metrics.batteryHeight);
-  status.battery.gap = batteryPercentSpacing;
+  status.battery =
+      headerBatteryProps(SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
   status.batteryLeft = metrics.headerBatterySide == 1;
   status.edgeInset = static_cast<int16_t>(headerStatusInset());
 
@@ -833,7 +845,8 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated) {
+                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated,
+                              const bool statusOnTop, const char* leftText) {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -906,7 +919,13 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Battery
   const bool showBatteryPercentage = sb.showBatteryPercent;
 
-  if (sb.showBattery) {
+  // Reader extra (paper page) in the bottom-left corner, before battery and clock.
+  if (leftText != nullptr && leftText[0] != '\0') {
+    renderer.drawText(SMALL_FONT_ID, leftClusterX, textY, leftText);
+    leftClusterWidth += renderer.getTextWidth(SMALL_FONT_ID, leftText) + 10;
+  }
+
+  if (sb.showBattery && !statusOnTop) {
     GUI.drawBatteryLeft(renderer,
                         Rect{leftClusterX + leftClusterWidth, textY, metrics.batteryWidth, metrics.batteryHeight},
                         showBatteryPercentage);
@@ -923,7 +942,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 
   // Draw Clock (any board whose RTC probe succeeded)
-  if (sb.showsClock() && halClock.isAvailable()) {
+  if (sb.showsClock() && halClock.isAvailable() && !statusOnTop) {
     char timeBuf[9];
     if (halClock.formatTime(timeBuf, sizeof(timeBuf), sb.clock12h)) {
       int clockTextWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
@@ -982,6 +1001,50 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                           (availableTitleSpace - titleWidth) / 2,
                       textY, title.c_str());
   }
+}
+
+// The page text starts screenMargin below the viewable top; the line box must fit above it.
+bool BaseTheme::readerTopMarginFitsStatus(const GfxRenderer& renderer) {
+  return SETTINGS.screenMargin > renderer.getLineHeight(SMALL_FONT_ID);
+}
+
+int BaseTheme::drawReaderTopStatus(const GfxRenderer& renderer, const int y) {
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  // Same corner insets as the header status line (headerBand).
+  const int inset = headerStatusInset() + std::max(0, BoardConfig::ACTIVE.cornerRadius - std::min(left, right));
+  const int rightEdge = renderer.getScreenWidth() - right - inset;
+  int rightX = rightEdge;
+  constexpr int gap = 10;
+  const auto sb = SETTINGS.statusBarSpec();
+
+  // Battery top-right, its percent left of the glyph: the header's battery indicator.
+  if (sb.showBattery) {
+    namespace fui = freeink::ui;
+    fui::GfxRendererFrame<1> ui(renderer, SMALL_FONT_ID);
+    const fui::BatteryIndicatorProps battery = headerBatteryProps(sb.showBatteryPercent);
+    int width = battery.glyphWidth + 2;  // the glyph's tip, as the header reserves it
+    if (battery.label) width += battery.gap + renderer.getTextWidth(SMALL_FONT_ID, battery.label);
+    rightX -= width;
+    // The glyph centred on the digits drawn at y; the component centres its label on the glyph.
+    const int iconY = batteryIconY(renderer, y, battery.glyphHeight);
+    fui::batteryIndicator(ui.frame,
+                          fui::Rect{static_cast<int16_t>(rightX), static_cast<int16_t>(iconY),
+                                    static_cast<int16_t>(width), battery.glyphHeight},
+                          battery);
+  }
+
+  // Clock top-left; set to Right, it sits left of the battery.
+  char timeBuf[9];
+  if (sb.showsClock() && halClock.isAvailable() && halClock.formatTime(timeBuf, sizeof(timeBuf), sb.clock12h)) {
+    if (sb.clockMode == CrossPointSettings::STATUS_BAR_CLOCK_RIGHT) {
+      rightX -= (rightX < rightEdge ? gap : 0) + renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
+      renderer.drawText(SMALL_FONT_ID, rightX, y, timeBuf);
+    } else {
+      renderer.drawText(SMALL_FONT_ID, left + inset, y, timeBuf);
+    }
+  }
+  return rightX < rightEdge ? rightX - gap : rightEdge;
 }
 
 void BaseTheme::drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) {

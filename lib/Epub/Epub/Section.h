@@ -21,8 +21,6 @@ class Section {
   std::string filePath;
   HalFile file;
 
-  static std::string sectionsDir(const Epub& epub);
-
   void writeSectionFileHeader(const ReaderRenderSpec& spec);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
 
@@ -149,10 +147,6 @@ class Section {
 
   // Get the page count from the section cache file without fully loading it.
   std::optional<uint16_t> getCachedPageCount() const;
-
-  // Sets pages[i] to the exact page count of spine i when its section file is finalized and laid
-  // out with `spec`; other entries are left as they are. Reads only file headers.
-  static void readCachedPageCounts(const Epub& epub, const ReaderRenderSpec& spec, uint16_t* pages, int count);
 
   // Look up the page number for a synthetic paragraph index from XPath p[N].
   std::optional<uint16_t> getPageForParagraphIndex(uint16_t pIndex) const;

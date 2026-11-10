@@ -1,11 +1,13 @@
 #pragma once
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "./FileBrowserActivity.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "components/CoverGridHomeUi.h"
+#include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -37,6 +39,11 @@ class HomeActivity final : public Activity {
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
   const bool cleanInitialRefresh;
+  // Hold-a-book menu (Open / Remove from Recents); draws over the home frame.
+  OptionPopup optionPopup;
+  // Books removed from Recents during this visit; the cover grid's Library
+  // fill skips them so the removal shows.
+  std::vector<std::string> removedThisVisit;
 
   // Convert HomeMenuItem to menu index (used in onEnter)
   static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
@@ -64,6 +71,8 @@ class HomeActivity final : public Activity {
     return HomeMenuItem::NONE;
   }
   void onRecentBookSelected(const std::string& path);
+  void showRecentBookOptions(int index);
+  void promptRemoveRecentBook(const std::string& path, const std::string& title);
   void onFileBrowserOpen();
   void onLibraryOpen();
   void onSettingsOpen();
@@ -75,6 +84,8 @@ class HomeActivity final : public Activity {
   bool storeCoverBuffer();    // Store frame buffer for cover image
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer
+  // Recent list, cover-grid fill and grid UI; onEnter and after a removal.
+  void reloadBookList();
   void loadRecentBooks(int maxBooks);
   void loadRecentCovers(int coverHeight);
   void fillCoverGridFromLibrary();

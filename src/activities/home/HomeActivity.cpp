@@ -23,6 +23,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -88,6 +89,7 @@ void HomeActivity::fillCoverGridFromLibrary() {
       continue;
     if (std::any_of(recentBooks.begin(), recentBooks.end(),
                     [&](const RecentBook& existing) { return existing.path == book.path; }) ||
+        std::find(removedThisVisit.begin(), removedThisVisit.end(), book.path) != removedThisVisit.end() ||
         RecentBooksStore::isMissing(book))
       continue;
     if (!index.readTitle(record, book.title) && !index.readName(record, book.title)) continue;
@@ -235,19 +237,12 @@ void HomeActivity::onEnter() {
   // from inside the Plugins screen (or users can sideload plugins manually).
   hasPlugins = SETTINGS.pluginsEnabled != 0;
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
     // Screen-lifetime interaction tables and component properties exceed the stack budget.
     coverGridUi = makeUniqueNoThrow<CoverGridHomeUi>(renderer);
     if (!coverGridUi) LOG_ERR("HOME", "OOM: cover grid UI; using standard home");
   }
-  loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
-  hasContinueReading = !recentBooks.empty();
-  if (coverGridUi) {
-    fillCoverGridFromLibrary();
-    resolveGridCoverPaths();
-    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
-  }
+  reloadBookList();
 
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
@@ -256,10 +251,22 @@ void HomeActivity::onEnter() {
   requestUpdate();
 }
 
+void HomeActivity::reloadBookList() {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
+  hasContinueReading = !recentBooks.empty();
+  if (coverGridUi) {
+    fillCoverGridFromLibrary();
+    resolveGridCoverPaths();
+    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
+  }
+}
+
 void HomeActivity::onExit() {
   Activity::onExit();
 
   coverGridUi.reset();
+  removedThisVisit.clear();
 
   // Free the stored cover buffer if any
   freeCoverBuffer();
@@ -301,7 +308,58 @@ void HomeActivity::freeCoverBuffer() {
   coverBufferStored = false;
 }
 
+// Hold menu for a book. Cover-grid books filled in from the library are not in
+// Recents, so they only get Open.
+void HomeActivity::showRecentBookOptions(const int index) {
+  if (index < 0 || index >= static_cast<int>(recentBooks.size())) return;
+  selectorIndex = index;
+  const std::string path = recentBooks[index].path;
+  const std::string title = recentBooks[index].title;
+  const auto& stored = RECENT_BOOKS.getBooks();
+  const bool inRecents =
+      std::any_of(stored.begin(), stored.end(), [&path](const RecentBook& book) { return book.path == path; });
+  const char* options[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS)};
+  // Short caption, the title as a wrapping headline (as in the Library).
+  // STR_HOME is the "« Home" back label, so the caption names the list.
+  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, inRecents ? 2 : 1, 0,
+                   [this, path, title](const int choice) {
+                     if (choice == 0) {
+                       onRecentBookSelected(path);
+                     } else if (choice == 1) {
+                       promptRemoveRecentBook(path, title);
+                     }
+                   });
+  requestUpdate();
+}
+
+// Removes only the Recents entry: the book file, progress and settings stay.
+void HomeActivity::promptRemoveRecentBook(const std::string& path, const std::string& title) {
+  auto confirmation =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title);
+  if (!confirmation) {
+    LOG_ERR("HOME", "OOM: recent removal confirmation");
+    return;
+  }
+  startActivityForResult(std::move(confirmation), [this, path](const ActivityResult& result) {
+    if (result.isCancelled) return;
+    // The render task reads the book list and the covers, and its cover load
+    // may update the Recents store.
+    RenderLock lock(*this);
+    if (!RECENT_BOOKS.removeByPath(path)) return;
+    removedThisVisit.push_back(path);
+    reloadBookList();
+    // The next book takes the removed slot; past the end, the last book (or the first menu item).
+    const int bookCount = static_cast<int>(recentBooks.size());
+    if (selectorIndex >= bookCount) selectorIndex = std::max(0, bookCount - 1);
+    recentsLoaded = false;
+    coverRendered = false;
+    freeCoverBuffer();
+  });
+}
+
 void HomeActivity::loop() {
+  if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -358,6 +416,14 @@ void HomeActivity::loop() {
     return;
   }
 
+  // Confirm hold on a book opens its options; menu items open on release as
+  // before. wasLongPressed() swallows the release, so the book does not also open.
+  if (selectorIndex < static_cast<int>(recentBooks.size()) &&
+      mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, MappedInputManager::ROW_HOLD_MS)) {
+    showRecentBookOptions(selectorIndex);
+    return;
+  }
+
   // Back is otherwise unused on the home menu: open the most recently read
   // book directly (recentBooks is most-recent-first and already pruned of
   // files missing from the SD card).
@@ -367,10 +433,14 @@ void HomeActivity::loop() {
   }
 
   if (coverGridUi) {
-    const int touched = coverGridUi->selectedAction(mappedInput);
-    if (touched >= 0 && touched < menuCount) {
-      selectorIndex = touched;
-      activateSelection();
+    const auto touched = coverGridUi->selectedAction(mappedInput);
+    if (touched.index >= 0 && touched.index < menuCount) {
+      selectorIndex = touched.index;
+      if (touched.longPress && touched.index < static_cast<int>(recentBooks.size())) {
+        showRecentBookOptions(touched.index);
+      } else {
+        activateSelection();
+      }
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -415,12 +485,26 @@ void HomeActivity::loop() {
   const int coverColumnCount = std::max(1, metrics.homeRecentBooksCount);
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
   const int coverColumnWidth = (content.width - 2 * metrics.contentSidePadding) / coverColumnCount;
+  const int coverLeft = content.x + metrics.contentSidePadding;
+  const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
+  const int renderedMenuCount =
+      menuCount - (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
+  // Row height from the theme, not the metrics table: RoundedRaff draws
+  // font-derived rows and the touch grid must match the visuals exactly.
+  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
+  const int menuRowStep = menuRowHeight + metrics.menuSpacing;
+
+  // A touch hold on a book opens its options; on a menu row it acts as a tap.
+  // Holds that hit neither stay unclaimed and release as a tap.
   int touchedBook = -1;
-  const auto coverTouch = mappedInput.colTouch(touchedBook, content.x + metrics.contentSidePadding, coverColumnWidth,
-                                               recentCount, metrics.homeTopPadding,
-                                               metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
+  const auto coverTouch =
+      mappedInput.colTouch(touchedBook, coverLeft, coverColumnWidth, recentCount, metrics.homeTopPadding,
+                           metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth, true);
   if (coverTouch != MappedInputManager::RowTouch::None) {
-    if (coverTouch == MappedInputManager::RowTouch::Down) {
+    if (coverTouch == MappedInputManager::RowTouch::Hold) {
+      haptic_feedback::touchAction(true);
+      showRecentBookOptions(touchedBook);
+    } else if (coverTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedBook) {
         selectorIndex = touchedBook;
         requestUpdate();
@@ -433,26 +517,23 @@ void HomeActivity::loop() {
     return;
   }
 
-  const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
-  const int renderedMenuCount =
-      menuCount - (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
   int menuRow = -1;
-  // Row height from the theme, not the metrics table: RoundedRaff draws
-  // font-derived rows and the touch grid must match the visuals exactly.
-  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
-  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, renderedMenuCount,
-                                              0, INT32_MAX, menuRowHeight);
+  const auto menuTouch =
+      mappedInput.rowTouch(menuRow, menuTop, menuRowStep, renderedMenuCount, 0, INT32_MAX, menuRowHeight, true);
   if (menuTouch != MappedInputManager::RowTouch::None) {
     const int touchedIndex =
         metrics.homeContinueReadingInMenu ? menuRow : menuRow + static_cast<int>(recentBooks.size());
-    if (menuTouch == MappedInputManager::RowTouch::Down) {
+    if (menuTouch == MappedInputManager::RowTouch::Hold && touchedIndex < static_cast<int>(recentBooks.size())) {
+      haptic_feedback::touchAction(true);
+      showRecentBookOptions(touchedIndex);
+    } else if (menuTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedIndex) {
         selectorIndex = touchedIndex;
         requestUpdate();
       }
     } else {
       selectorIndex = touchedIndex;
-      haptic_feedback::touchAction();
+      haptic_feedback::touchAction(menuTouch == MappedInputManager::RowTouch::Hold);
       activateSelection();
     }
     return;
@@ -475,6 +556,9 @@ void HomeActivity::render(RenderLock&&) {
   if (coverGridUi) {
     coverGridUi->setSelection(selectorIndex);
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
+    // The book options popup draws over a fresh home frame, with its own
+    // hints, so a panel closed over it leaves no stale pixels.
+    if (optionPopup.processRender(renderer, mappedInput)) return;
     // Front Left/Right walk the tabs, so their hints read Left/Right; the
     // side page buttons (unhinted) walk the covers.
     const auto labels = mappedInput.mapLabels(hasContinueReading ? tr(STR_RESUME) : "", tr(STR_SELECT),
@@ -548,6 +632,8 @@ void HomeActivity::render(RenderLock&&) {
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
+
+  if (optionPopup.processRender(renderer, mappedInput)) return;
 
   const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
                                             tr(STR_DIR_DOWN));

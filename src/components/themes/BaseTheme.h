@@ -147,7 +147,8 @@ enum UIIcon {
   Hotspot,
   Bookmark,
   Usb,
-  Blocks
+  Blocks,
+  Sync
 };
 
 // Default theme implementation (Classic Theme)
@@ -293,7 +294,15 @@ class BaseTheme {
   static void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,
                             std::string title, const int paddingBottom = 0, const int textYOffset = 0,
                             const bool fillMargin = true, const bool isPageBookmarked = false,
-                            const bool pageCountEstimated = false);
+                            const bool pageCountEstimated = false, const bool statusOnTop = false,
+                            const char* leftText = nullptr);
+  // The reader's battery and clock in the top page margin, text line at y, laid
+  // out like the header: clock top-left (or left of the battery when set to
+  // Right), battery top-right. drawStatusBar(statusOnTop) leaves them out.
+  // Returns the x where items further left in the top-right cluster must end.
+  static int drawReaderTopStatus(const GfxRenderer& renderer, int y);
+  // The reader's top page margin (screenMargin) holds a small-font status line.
+  static bool readerTopMarginFitsStatus(const GfxRenderer& renderer);
   static void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label);
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;

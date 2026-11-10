@@ -38,8 +38,6 @@ int bottomCornerClearance() {
   return board.bottomCornerRadius != 0 ? board.bottomCornerRadius : board.cornerRadius;
 }
 
-constexpr unsigned long LONG_PRESS_MS = 1000;
-
 constexpr int RECENT_TAB = 0;
 constexpr int TITLE_TAB = 1;
 constexpr int AUTHOR_TAB = 2;
@@ -757,7 +755,7 @@ bool LibraryListActivity::handleButtons() {
   // armed as suppressed by wasLongPressed() and consumed globally by
   // ActivityManager::loop() before any activity runs, so it cannot land in
   // the freshly opened confirmation and select its default.
-  if (mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, LONG_PRESS_MS)) {
+  if (mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, MappedInputManager::ROW_HOLD_MS)) {
     if (tabsFocused()) {
       if (!degraded) toggleSortDirection();
     } else if (isRecentSort(sortOrder)) {

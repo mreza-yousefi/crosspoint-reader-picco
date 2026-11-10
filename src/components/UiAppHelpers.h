@@ -109,6 +109,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
         return freeink::ui::bitmapFromIcon(icon_bookmark_32);
       case UIIcon::Blocks:
         return freeink::ui::bitmapFromIcon(icon_blocks_32);
+      case UIIcon::Sync:
+        return freeink::ui::bitmapFromIcon(icon_refresh_cw_32);
       default:
         return {};
     }
@@ -138,6 +140,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
       return freeink::ui::bitmapFromIcon(icon_bookmark_24);
     case UIIcon::Blocks:
       return freeink::ui::bitmapFromIcon(icon_blocks_24);
+    case UIIcon::Sync:
+      return freeink::ui::bitmapFromIcon(icon_refresh_cw_24);
     default:
       return {};
   }
@@ -172,18 +176,18 @@ inline void addDialogCancelOk(Screen& screen, const freeink::ui::ActionId cancel
 }
 
 // withLongPress: the SDK touch classifier fires the long-press WHILE the
-// finger is still down (matching the physical-button hold-to-act feel) and
-// suppresses the remainder of the contact, so the finger lift can't also
-// tap-dismiss the popup the long-press opens. Delivered as a touchReleased +
-// longPress snapshot at the contact point; only rows masked InputLongPress
-// receive it. Mirrors the SDK's long-press-aware fui::snapshotFrom, but maps
-// coordinates through the renderer's LIVE orientation (the reader rotates at
-// runtime), which the DeviceContext-based SDK adapter does not track.
+// finger is still down (matching the physical-button hold-to-act feel).
+// Delivered as a touchReleased + longPress snapshot at the contact point; only
+// rows masked InputLongPress receive it. The snapshot does not claim the
+// contact: UiAppHost::routeTouch suppresses it only when the hold hits, so the
+// finger lift can't also tap-dismiss the popup it opened. Mirrors the SDK's long-press-aware fui::snapshotFrom, but
+// maps coordinates through the renderer's LIVE orientation (the reader rotates at runtime), which the
+// DeviceContext-based SDK adapter does not track.
 inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& mappedInput,
                                                     const bool withLongPress = false) {
   int tx = 0;
   int ty = 0;
-  if (withLongPress && mappedInput.wasScreenLongPress(tx, ty)) {
+  if (withLongPress && mappedInput.peekScreenLongPress(tx, ty)) {
     freeink::ui::InputSnapshot snap{};
     snap.touchReleased = true;
     snap.longPress = true;

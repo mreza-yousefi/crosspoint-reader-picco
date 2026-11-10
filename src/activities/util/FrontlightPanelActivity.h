@@ -28,6 +28,11 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // reflected user intent in the first place.
   bool lightOnChanged = false;
   bool draggingSlider = false;
+  // A finger held on a - / + button: which one, and when it steps next.
+  freeink::ui::ActionId heldStepAction = freeink::ui::NO_ACTION;
+  int16_t heldStepValue = 0;
+  unsigned long nextHeldStepMs = 0;
+  bool stepRepeated = false;  // the hold stepped: its release adds no tap step
   int panelBottom = 0;
   const char* notice = nullptr;
 
@@ -56,6 +61,7 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   void adjustBrightness(int delta);
   void adjustWarmth(int delta);
   void toggleLight();
+  void repeatHeldStep(const freeink::ui::InputSnapshot& snap);
   void runTile(int idx);
   // Copy the panel's live brightness/warmth/lightOn into SETTINGS and save if
   // anything actually changed. onExit() runs it on every way out.

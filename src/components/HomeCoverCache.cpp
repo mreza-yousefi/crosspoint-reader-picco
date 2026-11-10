@@ -10,6 +10,7 @@
 namespace fui = freeink::ui;
 
 void HomeCoverCache::begin() {
+  if (coverCache) return;  // Idempotent: begin() reruns after a Recents removal
   // Cover regions do not overlap. Each may widen by one physical byte per row.
   coverCacheCapacity = renderer.getRegionByteSize(0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()) +
                        MAX_COVERS * std::max(renderer.getScreenWidth(), renderer.getScreenHeight());

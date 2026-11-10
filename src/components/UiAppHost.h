@@ -55,7 +55,8 @@ class UiAppHost {
   };
 
   // Gated snapshot-build + route: the common loop head. withLongPress forwards
-  // the SDK long-press (rows must carry InputLongPress); routeHeld forwards
+  // the SDK long-press (rows must carry InputLongPress) and claims the contact
+  // only when it hits an element; routeHeld forwards
   // held frames for InputDrag elements (sliders, drag-select fields).
   TouchRoute routeTouch(const MappedInputManager& input, bool withLongPress = false, bool routeHeld = false);
 

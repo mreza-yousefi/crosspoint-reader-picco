@@ -128,10 +128,10 @@ struct ReaderActivity {
   bool pageTurn(bool forward) { pages += forward ? 1 : -1; return true; }
   bool skipPages(int step) { chapters += step; return true; }
   bool quietRepaint = false;
-  int queued = 0;
-  bool queueTurnBehindQuietRepaint(bool forward) {
-    if (!quietRepaint) return false;
-    queued = forward ? 1 : -1;
+  int queued = 0;  // button turns waiting for a render, +n forward
+  bool queueRemoteTurn(bool forward) {
+    if (!quietRepaint && queued == 0) return false;
+    queued += forward ? 1 : -1;
     return true;
   }
 };
@@ -176,6 +176,12 @@ void checkRouting(MappedInputManager& input) {
   assert(!manager.remoteTurn(true, true));
   assert(manager.currentActivity->pages == 1 && manager.currentActivity->chapters == 0);
   RenderLock::rendering = false;
+  // Behind queued button turns a remote page turn queues too, so turns stay in order.
+  manager.currentActivity->quietRepaint = false;
+  manager.currentActivity->queued = 2;
+  assert(manager.remoteTurn(true, false) && manager.currentActivity->queued == 3);
+  assert(manager.currentActivity->pages == 1);
+  manager.currentActivity->queued = 0;
   manager.context = false;
   assert(!manager.remoteTurn(true, false));
 }

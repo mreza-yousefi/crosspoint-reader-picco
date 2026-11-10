@@ -82,10 +82,12 @@ class HalGPIO {
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
   // True when any button contact is closed right now, read straight from the
-  // hardware (ADC ladder off its idle rail, the power GPIO asserted, or the T5S3
-  // expander key, one I2C read), without going through the debounced state.
-  // Cheap enough to call every few ms.
-  bool rawInputActive();
+  // hardware (ADC ladder off its idle rail, a digital button GPIO or the power
+  // GPIO asserted, a pending TMA525C touch report, or the T5S3 expander key, one
+  // I2C read), without going through the debounced state. Cheap enough to call
+  // every few ms.
+  // includeTouch=false ignores the touch report (e.g. while touch is locked).
+  bool rawInputActive(bool includeTouch = true);
   bool hasTouch() const;
   // Capacitive Home key reported by the touch controller (X4 Pro). The tap
   // event fires on release and excludes a long hold.

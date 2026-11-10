@@ -146,8 +146,8 @@ bool HalGPIO::wasReleased(uint8_t buttonIndex) const { return inputMgr.wasReleas
 
 bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
 
-bool HalGPIO::rawInputActive() {
-  if (inputMgr.isPowerButtonPhysicallyPressed()) return true;
+bool HalGPIO::rawInputActive(const bool includeTouch) {
+  if (inputMgr.isPowerButtonPhysicallyPressed() || inputMgr.isDigitalInputPhysicallyActive(includeTouch)) return true;
 #if FREEINK_DEVICE_LILYGO
   if (BoardConfig::ACTIVE.board == BoardConfig::Board::LilyGoT5S3 && BoardT5S3::readButton()) return true;
 #endif

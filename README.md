@@ -89,7 +89,8 @@ Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).
 Details: [User Guide, Home Screen](USER_GUIDE.md#31-home-screen).
 
 - Hold a book on Home for a menu: **Open** or **Remove from Recents**. Only the Recents entry is removed; the book and
-  its progress stay.
+  its progress stay. Home shows only books from your Recents, the
+  same books that come first in the Library's Recent tab. A removed book stays off Home until you open it again.
 
 ### Other
 

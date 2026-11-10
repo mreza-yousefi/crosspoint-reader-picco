@@ -33,7 +33,7 @@ Details: [docs/dictionary.md](dictionary.md).
 ## Home
 Details: [USER_GUIDE.md section 3.1](../USER_GUIDE.md#31-home-screen).
 
-- Hold a recent book on Home (touch long-press on the cover or Continue Reading row, or a 1 s Confirm hold where a Confirm button exists; under the touch lock hold Up on Home first): menu with the book title, **Open** and **Remove from Recents**. Remove asks to confirm, then Home reloads without the book. Only the Recents entry is removed; the book file, progress, bookmarks and per-book settings stay. Cover Grid books filled in from the Library get **Open** only; a removed book stays out of the grid until Home is left, then it may come back as a Library book.
+- Hold a recent book on Home (touch long-press on the cover or Continue Reading row, or a 1 s Confirm hold where a Confirm button exists; under the touch lock hold Up on Home first): menu with the book title, **Open** and **Remove from Recents**. Remove asks to confirm, then Home reloads without the book. Only the Recents entry is removed; the book file, progress, bookmarks and per-book settings stay. Home shows only books from the Recents list, newest first, as many as fit (the first books of the Library's Recent tab); in the Cover Grid, empty slots stay empty instead of being filled from the Library. A removed book stays off Home until it is opened again.
 - A touch hold on a menu row or Cover Grid tab still opens it (when the hold is detected, not on release); a Confirm hold on a menu item opens it on release, as before. A hold on empty space does nothing; a hold on the status bar opens the light panel, like a tap.
 
 ## Light

@@ -7,8 +7,6 @@
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <I18n.h>
-#include <LibraryBuilder.h>
-#include <LibraryIndexFile.h>
 #include <Memory.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -55,47 +53,6 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
     }
 
     recentBooks.push_back(book);
-  }
-}
-
-void HomeActivity::fillCoverGridFromLibrary() {
-  if (recentBooks.size() >= CoverGridHomeUi::MAX_BOOKS) return;
-  // Keep the index and record together off the task stack; reuse for every row.
-  struct LibraryReader {
-    library::LibraryIndexFile index;
-    library::ClixRecord record;
-  };
-  auto reader = makeUniqueNoThrow<LibraryReader>();
-  if (!reader) {
-    LOG_ERR("HOME", "OOM: library index");
-    return;
-  }
-  auto& index = reader->index;
-  auto& record = reader->record;
-  if (!index.open(library::libraryIndexPath())) {
-    index.close();
-    GUI.drawPopup(renderer, tr(STR_LIBRARY_REBUILDING));
-    library::BuildStats stats;
-    if (!library::buildLibraryIndex("/", stats, SETTINGS.libraryUseMetadata != 0) ||
-        !index.open(library::libraryIndexPath())) {
-      LOG_ERR("HOME", "Cannot populate cover grid from library");
-      return;
-    }
-  }
-  for (uint16_t row = 0; row < index.bookCount() && recentBooks.size() < CoverGridHomeUi::MAX_BOOKS; ++row) {
-    RecentBook book;
-    if (!index.readRecord(index.ordinalForRow(library::SortOrder::RecentDesc, row), record) ||
-        !index.readPath(record, book.path))
-      continue;
-    if (std::any_of(recentBooks.begin(), recentBooks.end(),
-                    [&](const RecentBook& existing) { return existing.path == book.path; }) ||
-        std::find(removedThisVisit.begin(), removedThisVisit.end(), book.path) != removedThisVisit.end() ||
-        RecentBooksStore::isMissing(book))
-      continue;
-    if (!index.readTitle(record, book.title) && !index.readName(record, book.title)) continue;
-    index.readAuthor(record, book.author);
-    if (index.ioFailed()) break;
-    recentBooks.push_back(std::move(book));
   }
 }
 
@@ -256,7 +213,6 @@ void HomeActivity::reloadBookList() {
   loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
   hasContinueReading = !recentBooks.empty();
   if (coverGridUi) {
-    fillCoverGridFromLibrary();
     resolveGridCoverPaths();
     coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
   }
@@ -266,7 +222,6 @@ void HomeActivity::onExit() {
   Activity::onExit();
 
   coverGridUi.reset();
-  removedThisVisit.clear();
 
   // Free the stored cover buffer if any
   freeCoverBuffer();
@@ -308,20 +263,16 @@ void HomeActivity::freeCoverBuffer() {
   coverBufferStored = false;
 }
 
-// Hold menu for a book. Cover-grid books filled in from the library are not in
-// Recents, so they only get Open.
+// Hold menu for a book: Open / Remove from Recents.
 void HomeActivity::showRecentBookOptions(const int index) {
   if (index < 0 || index >= static_cast<int>(recentBooks.size())) return;
   selectorIndex = index;
   const std::string path = recentBooks[index].path;
   const std::string title = recentBooks[index].title;
-  const auto& stored = RECENT_BOOKS.getBooks();
-  const bool inRecents =
-      std::any_of(stored.begin(), stored.end(), [&path](const RecentBook& book) { return book.path == path; });
   const char* options[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS)};
   // Short caption, the title as a wrapping headline (as in the Library).
   // STR_HOME is the "« Home" back label, so the caption names the list.
-  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, inRecents ? 2 : 1, 0,
+  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, 2, 0,
                    [this, path, title](const int choice) {
                      if (choice == 0) {
                        onRecentBookSelected(path);
@@ -346,7 +297,6 @@ void HomeActivity::promptRemoveRecentBook(const std::string& path, const std::st
     // may update the Recents store.
     RenderLock lock(*this);
     if (!RECENT_BOOKS.removeByPath(path)) return;
-    removedThisVisit.push_back(path);
     reloadBookList();
     // The next book takes the removed slot; past the end, the last book (or the first menu item).
     const int bookCount = static_cast<int>(recentBooks.size());

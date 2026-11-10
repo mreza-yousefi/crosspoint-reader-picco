@@ -45,6 +45,8 @@ class Epub {
   std::unique_ptr<freeink::content::ContentDecryptor> decryptor;
   // User-presentable reason the encrypted-entry accessor could not be opened.
   std::string protectionError;
+  // The guide cover page could not be read: an empty cover href may be wrong.
+  bool guideCoverReadFailed = false;
 
   bool findContentOpfFile(std::string* contentOpfFile, ZipFile* sharedZip = nullptr) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true,

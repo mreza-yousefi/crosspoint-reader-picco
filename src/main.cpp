@@ -171,6 +171,39 @@ static void armSilentReboot(const uint32_t target) {
   silentRebootMagic = SILENT_REBOOT_MAGIC;
 }
 
+// Set by powerPanelDownForSleep(): sleep ignores Fast Page Turns.
+static bool panelOffForSleep = false;
+// True once the panel was powered down for the current off state.
+static bool panelOffApplied = false;
+
+// The renderer's turn-off flag powers the panel down after every refresh: the
+// sunlight fading fix, or Fast Page Turns off on the Picco SSD2677.
+static bool panelOffAfterRefresh() {
+  return SETTINGS.fadingFix || (display.canHoldPanelPower() && (panelOffForSleep || !SETTINGS.fastPageTurns));
+}
+
+// Runs each loop: applies the flag and, when it turns on, powers the panel
+// down at once instead of after the next refresh.
+static void applyPanelPower() {
+  const bool off = panelOffAfterRefresh();
+  renderer.setFadingFix(off);
+  if (!off) panelOffApplied = false;
+  if (!off || panelOffApplied || !display.canHoldPanelPower()) return;
+  RenderLock lock(RenderLock::Mode::Try);  // busy: try again next loop
+  if (!lock.ownsLock()) return;
+  display.powerOffBetweenFrames();
+  panelOffApplied = true;
+}
+
+// Powers the panel down now and after every later refresh until deep sleep.
+static void powerPanelDownForSleep() {
+  if (!display.canHoldPanelPower()) return;
+  panelOffForSleep = true;
+  renderer.setFadingFix(true);
+  RenderLock lock;
+  display.powerOffBetweenFrames();
+}
+
 // Returns instead of rebooting when sleep supersedes the reboot; callers keep
 // running in that case.
 static void silentRestartTo(const uint32_t target, const char* targetName) {
@@ -541,6 +574,7 @@ static unsigned long homeLockNoticeUntil = 0;
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
+  powerPanelDownForSleep();
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
   touchLockOverride = false;  // a forgotten override never survives sleep
@@ -859,6 +893,11 @@ void setup() {
   bool needsWakeRefresh = false;
 
   setupDisplayAndFonts(resume != BootResume::Splash);
+  renderer.setFadingFix(panelOffAfterRefresh());
+  if (display.canHoldPanelPower()) {
+    LOG_INF("MAIN", "Panel power between refreshes: %s",
+            SETTINGS.fastPageTurns ? "kept on (Fast Page Turns)" : "off after each refresh");
+  }
 
   switch (resume) {
     case BootResume::Silent:
@@ -1039,7 +1078,7 @@ void loop() {
     if (lock.ownsLock()) gaugeCapacityPending = BatteryMonitor::loadDesignCapacity();
   }
 
-  renderer.setFadingFix(SETTINGS.fadingFix);
+  applyPanelPower();
   copySyncedTimeToRtc();
 
   // The ROM console does not depend on Arduino USB CDC's connection state.

@@ -116,6 +116,8 @@ The Home screen is the main entry point to the firmware. From here you can navig
 
 **Remove a book from Recents (this fork):** long-press a book's cover (or its Continue Reading row), or select it and hold **Confirm** for one second (devices with a Confirm button). A menu with the book's title offers **Open** and **Remove from Recents**. Remove asks you to confirm; Home then shows the list without the book. Only the Recents entry is removed: the book file, reading progress, bookmarks and per-book settings stay. Home shows only books from your Recents, newest first, as many as fit: the same books that come first in the Library's **Recent** tab. In the Cover Grid, empty places stay empty. A removed book stays off Home until you open it again. With touch locked (BOOX Picco), hold Up on Home to unlock touch first.
 
+**Placeholder cover (this fork):** if an EPUB's cover cannot be made into a thumbnail, Home shows a placeholder and stops trying. To try again, open the book and use **Delete Book Cache** in the reader menu.
+
 ### 3.2 Reading Mode
 
 See [Reading Mode](#4-reading-mode) below for more information.
@@ -281,6 +283,15 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   
   - "OFF" (default) - Disable the fix
   - "ON" - Enable the fix
+
+- **Fast Page Turns** (BOOX Picco with the SSD2677 panel only): Keeps the screen powered between page turns, so each
+  turn is a little faster:
+
+  - "ON" (default) - Keep the screen powered between refreshes
+  - "OFF" - Power the screen down after every refresh. Should use less battery while a page stays on screen, but each
+    page turn is slower
+
+  Whatever the setting, the screen is powered down before sleep.
 
 #### 3.6.2 Reader
 

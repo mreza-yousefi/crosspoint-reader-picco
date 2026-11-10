@@ -16,6 +16,14 @@ class HalDisplay {
   GrayscaleCapabilities grayscaleCapabilities(GrayscaleMode mode = GrayscaleMode::Overlay) const;
   // Controller of the driver chosen at boot (null if the driver does not say).
   const char* controllerName() const { return einkDisplay.getControllerName(); }
+  // True on the Picco SSD2677: a panel whose SDK default is power-off after
+  // each refresh, and which the fork keeps powered unless the caller turns the
+  // screen off (Fast Page Turns setting).
+  bool canHoldPanelPower() const;
+  // Powers the panel's analog circuitry down after a finished frame; RAM and
+  // the partial-refresh baseline stay. Picco only (SDK no-op elsewhere). Call
+  // under the render lock.
+  void powerOffBetweenFrames() { einkDisplay.powerOffBetweenFrames(); }
 
   // Constructor with pin configuration
   HalDisplay();

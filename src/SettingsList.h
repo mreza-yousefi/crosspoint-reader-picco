@@ -2,6 +2,7 @@
 
 #include <BoardConfig.h>
 #include <HalClock.h>
+#include <HalDisplay.h>
 #include <HalFrontlight.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
@@ -291,6 +292,9 @@ inline bool isHiddenOnDevice(const SettingInfo& s) {
     // must not drop the saved value.
     case StrId::STR_TILT_PAGE_TURN:
       return !halTiltSensor.isAvailable();
+    // Only the Picco SSD2677 panel lets the host keep its power on.
+    case StrId::STR_FAST_PAGE_TURNS:
+      return !display.canHoldPanelPower();
     // Clock settings need the RTC, as on the device (ClockSettingsActivity).
     case StrId::STR_CLOCK:
     case StrId::STR_CLOCK_FORMAT:

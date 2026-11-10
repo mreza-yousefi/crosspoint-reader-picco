@@ -67,6 +67,9 @@ Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
   **Text Settings → Layout → Reset Text Settings** sets the book back to the default values.
 - With enough screen margin, the battery and clock show at the top of the page, as on Home: clock top-left,
   battery top-right. Otherwise they stay in the bottom status bar.
+- **Fast Page Turns** (Settings → Display, BOOX Picco with the SSD2677 panel; on by default) keeps the screen powered
+  between page turns, so each turn is faster. Turn it off to power the screen down after every page, if battery life
+  matters more.
 - Fast page-turn presses are not lost: each one shows its page in turn (up to 20 can wait).
 - The position in the whole book, `p. 212/380`, shows in the right corner of the status bar. The page in the
   chapter and the percentage are in the left corner (also in XTC books). The book position counts paper

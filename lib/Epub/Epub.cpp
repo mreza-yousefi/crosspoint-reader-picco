@@ -4,6 +4,7 @@
 #include <GifImageLayout.h>
 #include <GifLimitedWriter.h>
 #include <GifToBmpConverter.h>
+#include <HalMemory.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
@@ -15,6 +16,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
@@ -118,6 +120,7 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
     LOG_DBG("EBP", "No cover from metadata, trying guide cover page: %s", opfParser.guideCoverPageHref.c_str());
     size_t coverPageSize;
     uint8_t* coverPageData = readItemContentsToBytes(opfParser.guideCoverPageHref, &coverPageSize, true);
+    guideCoverReadFailed = coverPageData == nullptr;
     if (coverPageData) {
       const std::string coverPageHtml(reinterpret_cast<char*>(coverPageData), coverPageSize);
       free(coverPageData);
@@ -806,6 +809,58 @@ bool extractGifCover(const Epub& epub, const std::string& href, const std::strin
   return success;
 }
 
+// Free internal heap the cover decoders need: the largest converter
+// MIN_FREE_HEAP (JPEG, 52 KB) plus margin for row buffers.
+constexpr size_t THUMB_DECODE_MIN_HEAP = 96 * 1024;
+
+// The empty thumb is a marker: Home sees the file, stops retrying and draws
+// the placeholder. Delete Book Cache or Clear Reading Cache removes it.
+void markThumbUnavailable(const std::string& thumbPath, const char* reason) {
+  LOG_INF("EBP", "cover thumb: marked (%s)", reason);
+  HalFile marker;
+  Storage.openFileForWrite("EBP", thumbPath, marker);
+}
+
+bool retryThumbLater(const char* reason) {
+  LOG_INF("EBP", "cover thumb: retry later (%s)", reason);
+  return false;
+}
+
+// After the cover could not be extracted: mark only when the zip has no such entry.
+bool settleUnextractedThumb(const Epub& epub, const std::string& href, const std::string& thumbPath) {
+  size_t entrySize = 0;
+  if (epub.getItemSize(href, &entrySize)) return retryThumbLater("cover not extracted");
+  markThumbUnavailable(thumbPath, "cover missing in book");
+  return false;
+}
+
+// Boards without PSRAM put every buffer in internal RAM: no PSRAM limit.
+size_t psramLargestBlock() {
+  const auto psram = HalMemory::getPsramHeap();
+  return psram.totalBytes > 0 ? psram.largestBlockBytes : SIZE_MAX;
+}
+
+// After the decoder returned false: mark only when memory was ample and the
+// whole cover was extracted, so the image itself is at fault. Large decoder
+// buffers may come from PSRAM, so its largest block counts too.
+void settleFailedThumb(const Epub& epub, const std::string& href, const std::string& thumbPath,
+                       const HalMemory::HeapStats& heap, size_t psramLargest, size_t sourceSize) {
+  size_t entrySize = 0;
+  if (heap.freeBytes < THUMB_DECODE_MIN_HEAP || heap.largestBlockBytes < THUMB_DECODE_MIN_HEAP ||
+      psramLargest < THUMB_DECODE_MIN_HEAP) {
+    LOG_INF("EBP", "cover thumb: retry later (low heap: free %u, largest %u, PSRAM largest %u)",
+            static_cast<unsigned>(heap.freeBytes), static_cast<unsigned>(heap.largestBlockBytes),
+            static_cast<unsigned>(psramLargest));
+  } else if (!epub.getItemSize(href, &entrySize) || entrySize != sourceSize) {
+    LOG_INF("EBP", "cover thumb: retry later (extracted %u of %u bytes)", static_cast<unsigned>(sourceSize),
+            static_cast<unsigned>(entrySize));
+  } else {
+    markThumbUnavailable(thumbPath, "decode failed");
+    return;
+  }
+  Storage.remove(thumbPath.c_str());
+}
+
 template <typename Convert>
 bool generateGifBmp(const Epub& epub, const std::string& href, const std::string& bmpPath, Convert convert) {
   if (!gifGenerationMutex || xSemaphoreTake(gifGenerationMutex, portMAX_DELAY) != pdTRUE) {
@@ -987,6 +1042,9 @@ bool Epub::generateThumbBmpFromSource(int height) {
 bool Epub::generateThumbBmpForCover(int height, const std::string& coverImageHref) const {
   if (coverImageHref.empty()) {
     LOG_DBG("EBP", "No known cover image for thumbnail");
+    if (Txt::isTxtOrMd(filepath)) return false;
+    if (guideCoverReadFailed) return retryThumbLater("guide cover page not read");
+    markThumbUnavailable(getThumbBmpPath(height), "no cover");
     return false;
   }
 
@@ -997,17 +1055,22 @@ bool Epub::generateThumbBmpForCover(int height, const std::string& coverImageHre
   if (FsHelpers::hasJpgExtension(coverImageHref)) {
     LOG_DBG("EBP", "Generating thumb BMP from JPG cover image");
     const auto coverJpgTempPath = getCachePath() + "/.cover.jpg";
-    if (!extractItemToFile(coverImageHref, coverJpgTempPath)) return false;
+    if (!extractItemToFile(coverImageHref, coverJpgTempPath)) {
+      return settleUnextractedThumb(*this, coverImageHref, getThumbBmpPath(height));
+    }
 
     HalFile coverJpg;
     if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
-      return false;
+      return retryThumbLater("SD error");
     }
 
     HalFile thumbBmp;
     if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
-      return false;
+      return retryThumbLater("SD error");
     }
+    const auto heap = HalMemory::getInternalHeap();
+    const size_t psramLargest = psramLargestBlock();
+    const size_t sourceSize = coverJpg.size();
     // Use smaller target size for Continue Reading card (half of screen: 240x400)
     // Generate 1-bit BMP for fast home screen rendering (no gray passes needed)
     int THUMB_TARGET_WIDTH = height * 0.6;
@@ -1021,24 +1084,29 @@ bool Epub::generateThumbBmpForCover(int height, const std::string& coverImageHre
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from JPG cover image");
-      Storage.remove(getThumbBmpPath(height).c_str());
+      settleFailedThumb(*this, coverImageHref, getThumbBmpPath(height), heap, psramLargest, sourceSize);
     }
     LOG_DBG("EBP", "Generated thumb BMP from JPG cover image, success: %s", success ? "yes" : "no");
     return success;
   } else if (FsHelpers::hasPngExtension(coverImageHref)) {
     LOG_DBG("EBP", "Generating thumb BMP from PNG cover image");
     const auto coverPngTempPath = getCachePath() + "/.cover.png";
-    if (!extractItemToFile(coverImageHref, coverPngTempPath)) return false;
+    if (!extractItemToFile(coverImageHref, coverPngTempPath)) {
+      return settleUnextractedThumb(*this, coverImageHref, getThumbBmpPath(height));
+    }
 
     HalFile coverPng;
     if (!Storage.openFileForRead("EBP", coverPngTempPath, coverPng)) {
-      return false;
+      return retryThumbLater("SD error");
     }
 
     HalFile thumbBmp;
     if (!Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp)) {
-      return false;
+      return retryThumbLater("SD error");
     }
+    const auto heap = HalMemory::getInternalHeap();
+    const size_t psramLargest = psramLargestBlock();
+    const size_t sourceSize = coverPng.size();
     int THUMB_TARGET_WIDTH = height * 0.6;
     int THUMB_TARGET_HEIGHT = height;
     const bool success =
@@ -1050,21 +1118,20 @@ bool Epub::generateThumbBmpForCover(int height, const std::string& coverImageHre
 
     if (!success) {
       LOG_ERR("EBP", "Failed to generate thumb BMP from PNG cover image");
-      Storage.remove(getThumbBmpPath(height).c_str());
+      settleFailedThumb(*this, coverImageHref, getThumbBmpPath(height), heap, psramLargest, sourceSize);
     }
     LOG_DBG("EBP", "Generated thumb BMP from PNG cover image, success: %s", success ? "yes" : "no");
     return success;
   } else if (FsHelpers::hasGifExtension(coverImageHref)) {
-    return generateGifBmp(*this, coverImageHref, getThumbBmpPath(height), [height](HalFile& gif, Print& bmp) {
+    const bool ok = generateGifBmp(*this, coverImageHref, getThumbBmpPath(height), [height](HalFile& gif, Print& bmp) {
       return GifToBmpConverter::gifFileTo1BitBmpStreamWithSize(gif, bmp, height * 0.6, height);
     });
+    return ok || retryThumbLater("GIF not converted");
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
   }
 
-  // Write an empty bmp file to avoid generation attempts in the future
-  HalFile thumbBmp;
-  Storage.openFileForWrite("EBP", getThumbBmpPath(height), thumbBmp);
+  markThumbUnavailable(getThumbBmpPath(height), "unsupported format");
   return false;
 }
 

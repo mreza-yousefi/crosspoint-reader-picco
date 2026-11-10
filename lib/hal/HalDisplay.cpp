@@ -1,6 +1,8 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 
+#include <cstring>
+
 // Global HalDisplay instance
 HalDisplay display;
 
@@ -11,6 +13,11 @@ HalDisplay::HalDisplay() : einkDisplay(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_R
 HalDisplay::~HalDisplay() {}
 
 HalDisplay::Controller HalDisplay::getController() const { return BoardConfig::ACTIVE.displayController; }
+
+bool HalDisplay::canHoldPanelPower() const {
+  const char* name = controllerName();
+  return BoardConfig::isPicco() && name && strcmp(name, "SSD2677") == 0;
+}
 
 void HalDisplay::begin(bool seamless) {
   // Set X3-specific panel mode before initializing.

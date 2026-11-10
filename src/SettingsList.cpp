@@ -54,6 +54,10 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   if (!BoardConfig::hasTouch())
     emit(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                              StrId::STR_CAT_DISPLAY));
+  // Hidden by isHiddenOnDevice() unless the panel probe found the SSD2677.
+  if (BoardConfig::isPicco())
+    emit(SettingInfo::Toggle(StrId::STR_FAST_PAGE_TURNS, &CrossPointSettings::fastPageTurns, "fastPageTurns",
+                             StrId::STR_CAT_DISPLAY));
 #if FREEINK_CAP_FRONTLIGHT
   emit(SettingInfo::Toggle(StrId::STR_RESTORE_LIGHT_ON_WAKE, &CrossPointSettings::frontlightRestoreOnWake,
                            "frontlightRestoreOnWake", StrId::STR_CAT_DISPLAY));

@@ -68,11 +68,16 @@ Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
 - With enough screen margin, the battery and clock show at the top of the page, as on Home: clock top-left,
   battery top-right. Otherwise they stay in the bottom status bar.
 - Fast page-turn presses are not lost: each one shows its page in turn (up to 20 can wait).
-- The position in the whole book, `p. 212/380`, shows in the bottom-left corner of the status bar. It counts paper
+- The position in the whole book, `p. 212/380`, shows in the right corner of the status bar. The page in the
+  chapter and the percentage are in the left corner (also in XTC books). The book position counts paper
   pages: about 1,800 characters each, like a typical paperback, so it does not change with font, size, margins or
   orientation. It may differ from a specific printed edition. It appears a few seconds after the first time the
   position can show in a book, once the book's text is counted. Counting pauses while you press buttons or a menu is
   open. It shows when **Book Progress Percentage** is on (Settings → Reader → Customise Status Bar).
+- **Space Above Status Bar** and **Space Below Clock/Battery** (Settings → Reader → Customise Status Bar) add empty
+  space between the text and the bottom status bar, or between the battery and clock in the top margin and the text:
+  None, Small, Medium or Large. Defaults: Small at the bottom, None at the top. After updating to this version, each
+  book lays its chapters out once again on first open (pages hold slightly fewer lines with the default Small space).
 - The status-bar clock (Settings → Reader → Customise Status Bar → **Clock**) updates at each new minute while you
   read (EPUB, TXT, Markdown), but not during automatic page turn or with a menu open. It is corrected at each Wi-Fi
   time sync and after each Home Backup that does not fail.

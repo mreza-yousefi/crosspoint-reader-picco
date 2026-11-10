@@ -383,6 +383,10 @@ CrossPointSettings::StatusBarSpec CrossPointSettings::statusBarSpec() const {
   spec.progressBarHeightPx =
       statusBarProgressBar != HIDE_PROGRESS ? static_cast<uint8_t>((statusBarProgressBarThickness + 1) * 2) : 0;
   spec.xtcMode = xtcStatusBarMode;
+  // None / Small / Medium / Large: about 0, 1/2, 1 and 2 small-font lines.
+  constexpr uint8_t TEXT_GAP_PX[STATUS_BAR_TEXT_GAP_COUNT] = {0, 8, 16, 32};
+  spec.textGapBottomPx = TEXT_GAP_PX[statusBarTextGapBottom < STATUS_BAR_TEXT_GAP_COUNT ? statusBarTextGapBottom : 0];
+  spec.textGapTopPx = TEXT_GAP_PX[statusBarTextGapTop < STATUS_BAR_TEXT_GAP_COUNT ? statusBarTextGapTop : 0];
   return spec;
 }
 

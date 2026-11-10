@@ -4,6 +4,7 @@
 #include <HalClock.h>
 #include <I18n.h>
 
+#include <cstdio>
 #include <cstring>
 #include <memory>
 
@@ -26,6 +27,8 @@ enum MenuItem {
   ITEM_TITLE,
   ITEM_BATTERY,
   ITEM_XTC_STATUS_BAR,
+  ITEM_TEXT_GAP_BOTTOM,
+  ITEM_TEXT_GAP_TOP,
   ITEM_CLOCK,  // RTC boards only
   ITEM_COUNT
 };
@@ -43,6 +46,8 @@ const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_TITLE,
     StrId::STR_BATTERY,
     StrId::STR_XTC_STATUS_BAR,
+    StrId::STR_TEXT_GAP_BOTTOM,
+    StrId::STR_TEXT_GAP_TOP,
     StrId::STR_CLOCK,
 };
 
@@ -58,6 +63,10 @@ const StrId titleNames[TITLE_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrI
 
 constexpr int XTC_STATUS_BAR_ITEMS = 3;
 const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP};
+
+constexpr int TEXT_GAP_ITEMS = CrossPointSettings::STATUS_BAR_TEXT_GAP_COUNT;
+const StrId textGapNames[TEXT_GAP_ITEMS] = {StrId::STR_NONE_OPT, StrId::STR_GAP_SMALL, StrId::STR_GAP_MEDIUM,
+                                            StrId::STR_GAP_LARGE};
 
 constexpr int STATUS_BAR_CLOCK_ITEMS = CrossPointSettings::STATUS_BAR_CLOCK_MODE_COUNT;
 const StrId statusBarClockNames[STATUS_BAR_CLOCK_ITEMS] = {StrId::STR_HIDE, StrId::STR_DIR_RIGHT, StrId::STR_DIR_LEFT};
@@ -88,6 +97,14 @@ void StatusBarSettingsActivity::onEnter() {
 
   if (SETTINGS.xtcStatusBarMode >= XTC_STATUS_BAR_ITEMS) {
     SETTINGS.xtcStatusBarMode = CrossPointSettings::XTC_STATUS_BAR_MODE::XTC_STATUS_BAR_HIDE;
+  }
+
+  if (SETTINGS.statusBarTextGapBottom >= TEXT_GAP_ITEMS) {
+    SETTINGS.statusBarTextGapBottom = CrossPointSettings::STATUS_BAR_TEXT_GAP::TEXT_GAP_SMALL;
+  }
+
+  if (SETTINGS.statusBarTextGapTop >= TEXT_GAP_ITEMS) {
+    SETTINGS.statusBarTextGapTop = CrossPointSettings::STATUS_BAR_TEXT_GAP::TEXT_GAP_NONE;
   }
 
   if (SETTINGS.statusBarClock >= STATUS_BAR_CLOCK_ITEMS) {
@@ -154,6 +171,20 @@ void StatusBarSettingsActivity::handleSelection() {
                          SETTINGS.saveToFile();
                        });
       return;
+    case ITEM_TEXT_GAP_BOTTOM:
+      optionPopup.show(StrId::STR_TEXT_GAP_BOTTOM, textGapNames, TEXT_GAP_ITEMS, SETTINGS.statusBarTextGapBottom,
+                       [this](int idx) {
+                         SETTINGS.statusBarTextGapBottom = idx;
+                         SETTINGS.saveToFile();
+                       });
+      return;
+    case ITEM_TEXT_GAP_TOP:
+      optionPopup.show(StrId::STR_TEXT_GAP_TOP, textGapNames, TEXT_GAP_ITEMS, SETTINGS.statusBarTextGapTop,
+                       [this](int idx) {
+                         SETTINGS.statusBarTextGapTop = idx;
+                         SETTINGS.saveToFile();
+                       });
+      return;
     case ITEM_CLOCK:
       SETTINGS.statusBarClock = (SETTINGS.statusBarClock + 1) % STATUS_BAR_CLOCK_ITEMS;
       break;
@@ -173,6 +204,10 @@ std::string StatusBarSettingsActivity::rowValueText(const int index) {
       return I18N.get(titleNames[SETTINGS.statusBarTitle]);
     case ITEM_XTC_STATUS_BAR:
       return I18N.get(xtcStatusBarNames[SETTINGS.xtcStatusBarMode]);
+    case ITEM_TEXT_GAP_BOTTOM:
+      return I18N.get(textGapNames[SETTINGS.statusBarTextGapBottom]);
+    case ITEM_TEXT_GAP_TOP:
+      return I18N.get(textGapNames[SETTINGS.statusBarTextGapTop]);
     case ITEM_CLOCK:
       return I18N.get(statusBarClockNames[SETTINGS.statusBarClock]);
     default:
@@ -247,8 +282,13 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   constexpr bool fillMargin = false;
   constexpr bool pageBookmarked = false;
   constexpr bool pageCountEstimated = false;
+  // Sample book position, shown under the same setting as in the reader.
+  char position[32] = "";
+  if (SETTINGS.statusBarSpec().showBookProgressPercent) {
+    snprintf(position, sizeof(position), tr(STR_PAPER_PAGE_POSITION), 212u, 380u);
+  }
   GUI.drawStatusBar(renderer, 75, 8, 32, title, metrics.buttonHintsHeight, 0, fillMargin, pageBookmarked,
-                    pageCountEstimated, statusOnTop);
+                    pageCountEstimated, statusOnTop, position);
 
   const int labelY = renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
                      metrics.buttonHintsHeight - verticalPreviewTextPadding;

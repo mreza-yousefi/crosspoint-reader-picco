@@ -295,7 +295,7 @@ class BaseTheme {
                             std::string title, const int paddingBottom = 0, const int textYOffset = 0,
                             const bool fillMargin = true, const bool isPageBookmarked = false,
                             const bool pageCountEstimated = false, const bool statusOnTop = false,
-                            const char* leftText = nullptr);
+                            const char* rightText = nullptr);
   // The reader's battery and clock in the top page margin, text line at y, laid
   // out like the header: clock top-left (or left of the battery when set to
   // Right), battery top-right. drawStatusBar(statusOnTop) leaves them out.
@@ -303,6 +303,8 @@ class BaseTheme {
   static int drawReaderTopStatus(const GfxRenderer& renderer, int y);
   // The reader's top page margin (screenMargin) holds a small-font status line.
   static bool readerTopMarginFitsStatus(const GfxRenderer& renderer);
+  // Extra space below the top status line when it shows clock or battery, else 0.
+  static int readerTopStatusTextGap(const GfxRenderer& renderer);
   static void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label);
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;

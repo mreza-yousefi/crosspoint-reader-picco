@@ -63,6 +63,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     STATUS_BAR_CLOCK_MODE_COUNT
   };
 
+  // Extra space between the page text and a visible status line.
+  enum STATUS_BAR_TEXT_GAP {
+    TEXT_GAP_NONE = 0,
+    TEXT_GAP_SMALL = 1,
+    TEXT_GAP_MEDIUM = 2,
+    TEXT_GAP_LARGE = 3,
+    STATUS_BAR_TEXT_GAP_COUNT
+  };
+
   // Auto follows the timezone's baked DST rule; On/Off override it — the
   // escape hatch for a zone whose law changed before the firmware caught up.
   enum CLOCK_DST_MODE { CLOCK_DST_AUTO = 0, CLOCK_DST_ON = 1, CLOCK_DST_OFF = 2, CLOCK_DST_MODE_COUNT };
@@ -269,6 +278,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
   // Clock display in status bar (any board whose RTC probe succeeds)
   uint8_t statusBarClock = STATUS_BAR_CLOCK_HIDE;
+  // Space between the last text line and the bottom status bar, and between the
+  // top status line (clock/battery in the top margin) and the first text line.
+  uint8_t statusBarTextGapBottom = TEXT_GAP_SMALL;
+  uint8_t statusBarTextGapTop = TEXT_GAP_NONE;
   // LEGACY, kept for migration only: quarter-hour UTC offset biased by 48
   // (48 = UTC+0). Superseded by clockTimezone; read once by
   // timezones::activeIndex() when clockTimezone is unset.
@@ -469,6 +482,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     uint8_t progressBarMode = HIDE_PROGRESS;  // STATUS_BAR_PROGRESS_BAR
     uint8_t progressBarHeightPx = 0;          // (thickness+1)*2; 0 when the bar is hidden
     uint8_t xtcMode = XTC_STATUS_BAR_HIDE;    // XTC_STATUS_BAR_MODE
+    uint8_t textGapBottomPx = 0;              // STATUS_BAR_TEXT_GAP in pixels
+    uint8_t textGapTopPx = 0;
 
     bool showsProgressBar() const { return progressBarMode != HIDE_PROGRESS; }
     bool showsTitle() const { return titleMode != HIDE_TITLE; }

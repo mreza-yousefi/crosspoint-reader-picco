@@ -272,6 +272,7 @@ struct Settings {
     return spec;
   }
 } SETTINGS;
+int pageTextTopInset(const Renderer&) { return SETTINGS.screenMargin; }
 struct SavedClippings {
   Clipping clipping;
   bool hasClippings() const { return true; }

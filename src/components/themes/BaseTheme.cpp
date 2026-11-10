@@ -863,7 +863,7 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
                               const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated,
-                              const bool statusOnTop, const char* leftText) {
+                              const bool statusOnTop, const char* rightText) {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -885,8 +885,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   int leftClusterWidth = 0;
   int rightClusterWidth = 0;
 
+  // Reader extra (paper page) in the bottom-right corner.
+  if (rightText != nullptr && rightText[0] != '\0') {
+    rightClusterWidth = renderer.getTextWidth(SMALL_FONT_ID, rightText);
+    renderer.drawText(SMALL_FONT_ID, rightClusterX - rightClusterWidth, textY, rightText);
+  }
+
+  // Chapter page and book percentage in the bottom-left corner, before battery and clock.
   if (sb.showBookProgressPercent || sb.showChapterPageCount) {
-    // Right aligned text for progress counter
     char progressStr[32];
 
     // Draw the estimate marker separately so it can use the next UI font size.
@@ -904,14 +910,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     const int estimateWidth = showEstimate ? renderer.getTextWidth(UI_10_FONT_ID, "~") : 0;
     constexpr int estimateGap = 2;
     const int estimateSpacing = showEstimate ? estimateGap : 0;
-    const int progressX = rightClusterX - estimateWidth - estimateSpacing - progressTextWidth;
+    const int progressX = leftClusterX;
     if (showEstimate) {
       const int estimateY = textY + (renderer.getLineHeight(SMALL_FONT_ID) - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
       renderer.drawText(UI_10_FONT_ID, progressX, estimateY, "~");
     }
     renderer.drawText(SMALL_FONT_ID, progressX + estimateWidth + estimateSpacing, textY, progressStr);
 
-    rightClusterWidth += estimateWidth + estimateSpacing + progressTextWidth;
+    leftClusterWidth += estimateWidth + estimateSpacing + progressTextWidth;
   }
 
   // Draw Progress Bar
@@ -936,17 +942,13 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Battery
   const bool showBatteryPercentage = sb.showBatteryPercent;
 
-  // Reader extra (paper page) in the bottom-left corner, before battery and clock.
-  if (leftText != nullptr && leftText[0] != '\0') {
-    renderer.drawText(SMALL_FONT_ID, leftClusterX, textY, leftText);
-    leftClusterWidth += renderer.getTextWidth(SMALL_FONT_ID, leftText) + 10;
-  }
-
   if (sb.showBattery && !statusOnTop) {
-    GUI.drawBatteryLeft(renderer,
-                        Rect{leftClusterX + leftClusterWidth, textY, metrics.batteryWidth, metrics.batteryHeight},
-                        showBatteryPercentage);
-    int batteryWidth = metrics.batteryWidth;
+    const int batteryGap = leftClusterWidth > 0 ? 10 : 0;
+    GUI.drawBatteryLeft(
+        renderer,
+        Rect{leftClusterX + leftClusterWidth + batteryGap, textY, metrics.batteryWidth, metrics.batteryHeight},
+        showBatteryPercentage);
+    int batteryWidth = batteryGap + metrics.batteryWidth;
 
     if (showBatteryPercentage) {
       const uint16_t percentage = powerManager.getBatteryPercentage();
@@ -964,7 +966,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     if (halClock.formatTime(timeBuf, sizeof(timeBuf), sb.clock12h)) {
       int clockTextWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
       int clockX = 0;
-      // Position to the left or right of the progress text (with a small gap)
+      // Left: after the left cluster; Right: before the right cluster (with a small gap)
       if (sb.clockMode == CrossPointSettings::STATUS_BAR_CLOCK_LEFT) {
         clockX = leftClusterX + leftClusterWidth + (leftClusterWidth > 0 ? 10 : 0);
         leftClusterWidth += clockTextWidth + 10;
@@ -1023,6 +1025,13 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 // The page text starts screenMargin below the viewable top; the line box must fit above it.
 bool BaseTheme::readerTopMarginFitsStatus(const GfxRenderer& renderer) {
   return SETTINGS.screenMargin > renderer.getLineHeight(SMALL_FONT_ID);
+}
+
+// Clock presence is not checked, like UITheme::getStatusBarHeight(): the layout stays hardware-agnostic.
+int BaseTheme::readerTopStatusTextGap(const GfxRenderer& renderer) {
+  const auto sb = SETTINGS.statusBarSpec();
+  if (!readerTopMarginFitsStatus(renderer) || !(sb.showBattery || sb.showsClock())) return 0;
+  return sb.textGapTopPx;
 }
 
 int BaseTheme::drawReaderTopStatus(const GfxRenderer& renderer, const int y) {

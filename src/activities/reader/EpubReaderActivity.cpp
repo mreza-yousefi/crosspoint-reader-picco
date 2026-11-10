@@ -78,6 +78,11 @@ constexpr int PAGE_TURN_RATES[] = {1, 1, 3, 6, 12};
 constexpr float bookmarkProgressEpsilon = 0.0001f;
 constexpr int CLIP_SELECTION_PAGE_WINDOW = 3;
 
+// Page text top below the viewable top: the screen margin plus the gap under a top status line.
+int pageTextTopInset(const GfxRenderer& renderer) {
+  return SETTINGS.screenMargin + BaseTheme::readerTopStatusTextGap(renderer);
+}
+
 // Word i's font: headings and CSS font-size runs can differ from the section font.
 int clippingWordFont(const GfxRenderer& renderer, const int fontId, const TextBlock& block, const uint16_t i) {
   return TextBlock::renderFontId(renderer, block.wordFontId(i, fontId), fontId);
@@ -516,7 +521,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  marginTop += SETTINGS.screenMargin;
+  marginTop += pageTextTopInset(renderer);
   marginLeft += SETTINGS.screenMargin;
 
   std::string chapterTitle;
@@ -588,7 +593,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
         vocabulary.seriesIndex = vocabularyMetadata->seriesIndex;
       }
       auto lookup = makeUniqueNoThrow<DictionaryWordSelectActivity>(
-          renderer, mappedInput, std::move(page), left + SETTINGS.screenMargin, top + SETTINGS.screenMargin,
+          renderer, mappedInput, std::move(page), left + SETTINGS.screenMargin, top + pageTextTopInset(renderer),
           clipping.text, std::move(vocabulary));
       if (!lookup) {
         LOG_ERR("CLIP", "OOM: dictionary lookup activity");
@@ -658,7 +663,7 @@ void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  orientedMarginTop += SETTINGS.screenMargin;
+  orientedMarginTop += pageTextTopInset(renderer);
   orientedMarginLeft += SETTINGS.screenMargin;
   auto selector = makeUniqueNoThrow<EpubReaderFootnoteSelectActivity>(renderer, mappedInput, std::move(page),
                                                                       orientedMarginLeft, orientedMarginTop);
@@ -1833,19 +1838,27 @@ void EpubReaderActivity::renderBook() {
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  orientedMarginTop += SETTINGS.screenMargin;
+  orientedMarginTop += pageTextTopInset(renderer);
   orientedMarginLeft += SETTINGS.screenMargin;
   orientedMarginRight += SETTINGS.screenMargin;
 
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  const auto sb = SETTINGS.statusBarSpec();
 
   if (automaticPageTurnActive &&
       (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
+    // The "Auto turn" line is drawn at the bottom.
     orientedMarginBottom +=
         std::max(SETTINGS.screenMargin,
-                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
+                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin)) +
+        sb.textGapBottomPx;
   } else {
-    orientedMarginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+    // Battery and clock may move to the top; the gap needs something left in the bottom bar.
+    const bool bottomBarDrawn =
+        statusBarHeight > 0 && (!BaseTheme::readerTopMarginFitsStatus(renderer) || sb.showChapterPageCount ||
+                                sb.showBookProgressPercent || sb.showsTitle() || sb.showsProgressBar());
+    orientedMarginBottom +=
+        std::max(SETTINGS.screenMargin, statusBarHeight) + (bottomBarDrawn ? sb.textGapBottomPx : 0);
   }
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
@@ -2524,6 +2537,7 @@ int EpubReaderActivity::clippingAtPoint(const Page& page, const int x, const int
   const int fontId = SETTINGS.getReaderFontId();
   const uint32_t signature =
       readerRenderSpecSignature(SETTINGS.readerRenderSpec(buildViewportWidth, buildViewportHeight));
+  const int textTop = top + pageTextTopInset(renderer);
   uint16_t wordIndex = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageLine) continue;
@@ -2538,8 +2552,7 @@ int EpubReaderActivity::clippingAtPoint(const Page& page, const int x, const int
                                                  block->getBlockStyle().characterSpacing);
       if (width <= 0) continue;
       const uint16_t index = wordIndex++;
-      const Rect rect =
-          clippingWordRect(renderer, fontId, line, i, top + SETTINGS.screenMargin, left + SETTINGS.screenMargin, width);
+      const Rect rect = clippingWordRect(renderer, fontId, line, i, textTop, left + SETTINGS.screenMargin, width);
       if (x < rect.x || x >= rect.x + rect.width || y < rect.y || y >= rect.y + rect.height) continue;
       const auto range = block->wordSourceRange(i);
       for (size_t j = 0; j < CLIPPINGS.clippingCount(); ++j) {
@@ -2663,9 +2676,9 @@ void EpubReaderActivity::renderStatusBar() const {
   int top, right, bottom, left;
   renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
   // With room in the top page margin, clock, battery and touch lock padlock sit
-  // there as in the Home header (padlock centred); the book position ends the
-  // top-right cluster on the left. Otherwise the padlock takes the top-right
-  // corner and the clock and battery stay in the bottom bar.
+  // there as in the Home header (padlock centred). Otherwise the padlock takes
+  // the top-right corner and the clock and battery stay in the bottom bar. The
+  // book position goes in the bottom-right corner.
   const bool statusOnTop = BaseTheme::readerTopMarginFitsStatus(renderer);
   const int lockX = statusOnTop ? (renderer.getScreenWidth() - 9) / 2 : renderer.getScreenWidth() - right - 13;
   if (slideSwitchTouchLockEngaged()) {

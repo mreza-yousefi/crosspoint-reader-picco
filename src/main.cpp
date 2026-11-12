@@ -49,6 +49,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
+#include "stats/ReadingStats.h"
 #include "util/ButtonNavigator.h"
 #include "util/NetworkTime.h"
 #include "util/PluginEvents.h"
@@ -216,7 +217,8 @@ static bool trustedLocalTime(struct tm& out) {
 // Returns instead of rebooting when sleep supersedes the reboot; callers keep
 // running in that case.
 static void silentRestartTo(const uint32_t target, const char* targetName) {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+  if (deepSleepInProgress) return;            // sleeping supersedes the heap-defrag reboot
+  READING_STATS.endSession(stats::END_EXIT);  // a reboot loses the RAM buffer
   armSilentReboot(target);
   LOG_DBG("MAIN", "Silent restart (target=%s)", targetName);
   // E-ink retains the previous frame until the target's first paint lands
@@ -243,6 +245,7 @@ void silentRestartToJoinNetwork() {
   // this runs on the way *in*, unlike the exit-time silentRestart()).
   if (BoardConfig::hasTouch()) return;
 #endif
+  READING_STATS.endSession(stats::END_EXIT);
   armSilentReboot(SILENT_REBOOT_TARGET_JOIN_NETWORK);
   LOG_DBG("MAIN", "Silent restart (target=join-network)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
@@ -252,6 +255,7 @@ void silentRestartToJoinNetwork() {
 
 void restartToHomeAfterStorageHandoff() {
   if (deepSleepInProgress) return;  // sleeping supersedes the storage handoff reboot
+  READING_STATS.endSession(stats::END_EXIT);
   armSilentReboot(SILENT_REBOOT_TARGET_HOME);
   LOG_DBG("MAIN", "Restart after storage handoff (target=home)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
@@ -591,6 +595,9 @@ void enterDeepSleep(bool fromTimeout = false) {
   // Sleep may end in a power-off (battery death, latch); persist the clock
   // floor now so a later cold boot resumes from it.
   trustedtime::note();
+
+  // Close the reading session early in the sleep sequence, before anything that may stop it.
+  READING_STATS.endSession(fromTimeout ? stats::END_AUTO_SLEEP : stats::END_SLEEP);
 
   // Stop Bluetooth before plugin delivery can start WiFi; a timeout defers delivery.
   deepSleepInProgress = true;

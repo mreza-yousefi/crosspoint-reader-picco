@@ -7,6 +7,7 @@
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderDocumentId.h>
 #include <Memory.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -24,9 +25,10 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "stats/ReadingStats.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Library, File transfer, Settings
+  int count = 5;  // File Browser, Library, File transfer, Reading Stats, Settings
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -264,22 +266,45 @@ void HomeActivity::freeCoverBuffer() {
   coverBufferStored = false;
 }
 
-// Hold menu for a book: Open / Remove from Recents.
+// Hold menu for a book: Open / Remove from Recents, and Hide from / Show in Stats once the
+// reading stats know the book.
 void HomeActivity::showRecentBookOptions(const int index) {
   if (index < 0 || index >= static_cast<int>(recentBooks.size())) return;
   selectorIndex = index;
   const std::string path = recentBooks[index].path;
   const std::string title = recentBooks[index].title;
-  const char* options[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS)};
+  const auto statsState = READING_STATS.hiddenState(KOReaderDocumentId::calculate(path));
+  const bool inStats = statsState != ReadingStats::Hidden::Unknown;
+  const bool hidden = statsState == ReadingStats::Hidden::Hidden;
+  const char* options[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS),
+                           hidden ? tr(STR_SHOW_IN_STATS) : tr(STR_HIDE_FROM_STATS)};
   // Short caption, the title as a wrapping headline (as in the Library).
   // STR_HOME is the "« Home" back label, so the caption names the list.
-  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, 2, 0, [this, path, title](const int choice) {
-    if (choice == 0) {
-      onRecentBookSelected(path);
-    } else if (choice == 1) {
-      promptRemoveRecentBook(path, title);
-    }
-  });
+  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, inStats ? 3 : 2, 0,
+                   [this, path, title](const int choice) {
+                     if (choice == 0) {
+                       onRecentBookSelected(path);
+                     } else if (choice == 1) {
+                       promptRemoveRecentBook(path, title);
+                     } else if (choice == 2) {
+                       toggleBookStats(path);
+                     }
+                   });
+  requestUpdate();
+}
+
+// The flag is kept with the book's stats; its sessions stay recorded either way.
+void HomeActivity::toggleBookStats(const std::string& path) {
+  const std::string docId = KOReaderDocumentId::calculate(path);
+  const auto state = READING_STATS.hiddenState(docId);
+  if (state == ReadingStats::Hidden::Unknown) return;
+  {
+    RenderLock lock(*this);
+    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  }
+  if (!READING_STATS.setHidden(docId, state == ReadingStats::Hidden::Shown)) {
+    LOG_ERR("HOME", "Could not change the book's stats flag");
+  }
   requestUpdate();
 }
 
@@ -331,6 +356,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
+        break;
+      case HomeMenuItem::STATS:
+        onReadingStatsOpen();
         break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
@@ -573,8 +601,8 @@ void HomeActivity::render(RenderLock&&) {
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
+                                        tr(STR_READING_STATS), tr(STR_SETTINGS_TITLE)};
+  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Stats, Settings};
 
   if (hasLibrarySlot()) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
@@ -624,6 +652,8 @@ void HomeActivity::onLibraryOpen() { activityManager.goToLibrary(); }
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
+
+void HomeActivity::onReadingStatsOpen() { activityManager.goToReadingStats(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 

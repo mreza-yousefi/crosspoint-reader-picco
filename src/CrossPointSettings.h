@@ -384,6 +384,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   char dictionaryName[32] = "";
   // Save successful dictionary lookups to vocabulary history (fork: default on).
   uint8_t vocabularyHistoryEnabled = 1;
+  // Reading stats leave out sessions under a minute or without a page turn.
+  uint8_t statsIgnoreShortOpens = 1;
   // Master switch for all SD-card plugin discovery/execution. New installs keep
   // this disabled; settings migration enables it when pre-existing plugin files
   // are found so a firmware update never silently disables an existing setup.

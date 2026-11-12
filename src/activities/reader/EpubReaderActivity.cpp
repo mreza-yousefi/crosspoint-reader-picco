@@ -55,10 +55,12 @@
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
+#include "activities/stats/ReadingStatsActivity.h"
 #include "clippings/ClippingText.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "stats/ReadingStats.h"
 #include "util/BookSettings.h"
 #include "util/BookmarkUtil.h"
 #include "util/ButtonNavigator.h"
@@ -321,6 +323,7 @@ bool EpubReaderActivity::loadBook() {
   if (!CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub")) {
     LOG_ERR("CLIP", "Failed to load clippings for %s", epub->getPath().c_str());
   }
+  READING_STATS.beginSession(documentId, bookPath, epub->getTitle(), epub->getAuthor());
   return true;
 }
 
@@ -638,6 +641,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
     bool exported = false;
     if (addResult == ClippingStore::AddResult::Added) {
       exported = ClippingsManager::saveClipping(bookTitle, author, chapterTitle, startPage + 1, clipping.text);
+      READING_STATS.noteEvent(stats::EVENT_CLIPPING);
     }
     clippingMessage = addResult == ClippingStore::AddResult::LimitReached ? StrId::STR_CLIPPING_LIMIT_REACHED
                       : exported                                          ? StrId::STR_CLIPPING_SAVED
@@ -719,6 +723,8 @@ void EpubReaderActivity::loop() {
   }
 
   rememberBookOnceRendered();
+  // The toolbar menu and its panels pause the reading clock; back on the page it runs again.
+  READING_STATS.setPaused(overlay != Overlay::None);
 
   // The radio stopped for a chapter build: once the render task has let go of the lock, that page
   // is on screen; once the build tick below has finished the chapter, no parser is left alive and
@@ -1052,6 +1058,8 @@ void EpubReaderActivity::loop() {
     }
     // Nothing to act on in this frame: build more of the chapter, or else count paper pages.
     if (!backgroundBuildTick()) paperPagesTick();
+    // Reading stats reach the SD card between renders, never on the turn path.
+    if (!turnGuardActive && !fullRenderPending && !anyButtonPressed()) READING_STATS.tick();
     return;
   }
 
@@ -1429,6 +1437,16 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::TOGGLE_BOOKMARK: {
       addBookmark();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::OPEN_STATS: {
+      auto statsScreen = makeUniqueNoThrow<ReadingStatsActivity>(renderer, mappedInput, true);
+      if (!statsScreen) {
+        LOG_ERR("ERS", "OOM: reading stats");
+        requestUpdate();
+        break;
+      }
+      startActivityForResult(std::move(statsScreen), [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
   }
@@ -1832,6 +1850,7 @@ void EpubReaderActivity::renderBook() {
   if (currentSpineIndex > epub->getSpineItemsCount()) currentSpineIndex = epub->getSpineItemsCount();
 
   if (currentSpineIndex == epub->getSpineItemsCount()) {
+    READING_STATS.noteEndOfBook();
     return;
   }
 
@@ -2145,6 +2164,7 @@ void EpubReaderActivity::renderBook() {
     shownSpine = currentSpineIndex;
     shownPage = section->currentPage;
     shownVisit = activityManager.visit();
+    if (!quietRepaintPass) recordPageShown();
   }
 
   if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
@@ -2204,6 +2224,7 @@ void EpubReaderActivity::renderBook() {
 }
 
 void EpubReaderActivity::onEndOfBookRendered() {
+  READING_STATS.noteEndOfBook();
   automaticPageTurnActive = false;
   if (pendingSyncSaveError) {
     pendingSyncSaveError = false;
@@ -2670,6 +2691,23 @@ void EpubReaderActivity::paperPagesTick() {
   if (!paperPages.countNext(*epub, &buttonContactClosed)) return;
   // Show the label.
   requestQuietRepaint();
+}
+
+void EpubReaderActivity::recordPageShown() {
+  ReadingStats::PageInfo info;
+  info.pos.spine = static_cast<uint16_t>(currentSpineIndex);
+  info.pos.page = static_cast<uint16_t>(section->currentPage);
+  info.pos.pageCount = section->pageCount;
+  info.pos.offsetKnown = currentPageVisibleOffset.has_value();
+  info.pos.offset = currentPageVisibleOffset.value_or(0);
+  if (paperPages.ready() && info.pos.offsetKnown) {
+    const uint32_t page =
+        paperPages.pageAt(currentSpineIndex, info.pos.offset, paperPages.visibleChars(currentSpineIndex));
+    info.paperPage = static_cast<uint16_t>(std::min<uint32_t>(page, UINT16_MAX));
+    info.paperPagesTotal = static_cast<uint16_t>(std::min<uint32_t>(paperPages.totalPages(), UINT16_MAX));
+  }
+  info.percentBp = static_cast<uint16_t>(getProgressBasisPoints());
+  READING_STATS.onPageShown(info);
 }
 
 void EpubReaderActivity::renderStatusBar() const {
@@ -3655,6 +3693,7 @@ void EpubReaderActivity::addBookmark() {
     cachedBookmarks.insert(cachedBookmarks.begin(), entry);
     bookmarkRemoved = false;
     currentPageBookmarked = true;
+    READING_STATS.noteEvent(stats::EVENT_BOOKMARK);
   }
 
   if (!BookmarkFile::save(epub->getPath(), cachedBookmarks)) {

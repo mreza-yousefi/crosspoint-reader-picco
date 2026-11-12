@@ -148,7 +148,8 @@ enum UIIcon {
   Bookmark,
   Usb,
   Blocks,
-  Sync
+  Sync,
+  Stats
 };
 
 // Default theme implementation (Classic Theme)

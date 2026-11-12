@@ -19,6 +19,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "XtcReaderActivity.h"
+#include "stats/ReadingStats.h"
 #include "util/BookSettings.h"
 #include "util/PluginEvents.h"
 
@@ -130,6 +131,7 @@ void ReaderActivity::onExit() {
   // Flush BEFORE the ReaderExit event: the session's final progress must be
   // durable before a subscriber can act on the exit notification.
   flushReaderSession();
+  READING_STATS.endSession(stats::END_EXIT);
 
   if (pluginevents::anySubscriber(pluginevents::Event::ReaderExit)) {
     const ScreenshotInfo info = getScreenshotInfo();

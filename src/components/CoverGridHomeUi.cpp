@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 #include <utility>
 
 #include "MappedInputManager.h"
@@ -15,6 +16,7 @@
 #include "icons/folder.h"
 #include "icons/library.h"
 #include "icons/settings2.h"
+#include "icons/stats.h"
 #include "icons/transfer.h"
 #include "util/BookProgress.h"
 
@@ -290,9 +292,11 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const uint8_t* ICONS[] = {FolderIcon, LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon};
+  static constexpr const uint8_t* ICONS[] = {FolderIcon,   LibraryIcon, BlocksIcon,
+                                             TransferIcon, StatsIcon,   Settings2Icon};
+  static_assert(std::size(ICONS) == std::tuple_size_v<decltype(tabItems)>);
   int count = 0;
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < static_cast<int>(std::size(ICONS)); ++i) {
     if (i == 2 && !hasOpds) continue;
     auto& tab = tabItems[count];
     tab.value = books->size() + count;

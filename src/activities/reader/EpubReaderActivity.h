@@ -267,6 +267,8 @@ class EpubReaderActivity final : public ReaderActivity {
   bool showsBookPosition() const;
   // Counts the next spine item for paperPages in an idle loop frame; repaints once the count is done.
   void paperPagesTick();
+  // Render task: tells the reading stats which page reached the panel.
+  void recordPageShown();
   void renderStatusBar() const;
   void applyOrientation(uint8_t orientation);
   void applyInitialOrientation() override;

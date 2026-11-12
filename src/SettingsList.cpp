@@ -132,6 +132,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          StrId::STR_CAT_READER));
   emit(SettingInfo::Toggle(StrId::STR_SAVE_VOCABULARY_LOOKUPS, &CrossPointSettings::vocabularyHistoryEnabled,
                            "vocabularyHistoryEnabled", StrId::STR_CAT_READER));
+  emit(SettingInfo::Toggle(StrId::STR_STATS_IGNORE_SHORT_OPENS_SETTING, &CrossPointSettings::statsIgnoreShortOpens,
+                           "statsIgnoreShortOpens", StrId::STR_CAT_READER));
   // --- Controls ---
 #if FREEINK_CAP_HAPTIC
   emit(SettingInfo::Enum(StrId::STR_VIBRATION, &CrossPointSettings::vibration,

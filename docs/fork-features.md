@@ -64,6 +64,20 @@ Details: [USER_GUIDE.md section 3.6.2](../USER_GUIDE.md#362-reader).
 - Status-bar clock (EPUB, TXT, Markdown) repaints at each new minute with one fast refresh: no gray pass, no step towards the periodic clean refresh. Not during automatic page turn, with a menu, panel, popup or message over the page, or on UC8279 absolute-gray image pages ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
 - The RTC is set at each SNTP sync and from the Home Backup server's `Date` header after a run that ends Ok or Partial.
 
+## Reading statistics
+Details: [docs/reading-stats.md](reading-stats.md) (data, rules, formats) and [USER_GUIDE.md section 3.9](../USER_GUIDE.md#39-reading-stats-fork).
+
+- Every EPUB, TXT and Markdown reading session and every page change is recorded on the SD card in `/.crosspoint/stats/` (XTC is not). A book is recognised by its KOReader document id, so renaming or moving it keeps its statistics.
+- Active time: a page counts up to about 3.5x the time you usually need for that much text in this book (at least 1 minute, at most 30); longer is a pause. The speed is learned per book; before that, from all books, else a flat 5 minutes.
+- A session ends when the book closes, you go Home or sleep. Sessions of one book less than 10 minutes apart are one sitting. Time with the reader menu or the Stats screen over the book is not counted; dictionary lookups are. **Ignore Short Opens in Stats** (Settings → Reader; also in the Stats Overview; default On) leaves out sessions under 1 minute or without a page turn.
+- Reading speed comes from the exact text of pages turned forward in a chapter, so it does not need the status-bar page count. A book is finished when a session takes it past 99% (the end-of-book screen counts as 100%).
+- Without a trusted clock, reading counts in Total but not in days or charts.
+- **Reading Stats** screen: Overview (today, this week, month and year, total, current and longest streak, books finished this year) and bar charts of reading time per day (30), week (26), month (12) and year. Tap a bar or walk the bars with the buttons; the arrows, a swipe, or walking past the oldest bar pages back in time. A day bar opens that day's sessions.
+- Open it from Home (bar chart icon in the row of icons at the bottom of Home in the Cover Grid theme, **Reading Stats** in the Home list of the other themes) or from the reader menu (**Reading Stats**). Back goes to Home or to the book it was opened from.
+- Hold a book on Home: **Hide from Stats** / **Show in Stats** keeps a test book out of the totals and charts; its data stays.
+- Page data is kept in RAM and written every 3 minutes and at the session end, never on the page-turn path; a reset loses at most the last 3 minutes. Clear Reading Cache does not delete the statistics; Home Backup includes them.
+- File dates on the SD card now come from the reader's clock (when it is set), so Home Backup sees files changed in place.
+
 ## Sleep screen
 - Strip with "Battery at sleep N%" and "· Book N%". On USB power the first part reads "Charging N%" or "Charged N%".
 

@@ -85,6 +85,19 @@ Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
   read (EPUB, TXT, Markdown), but not during automatic page turn or with a menu open. It is corrected at each Wi-Fi
   time sync and after each Home Backup that does not fail.
 
+### Reading statistics
+
+Details: [User Guide, Reading Stats](USER_GUIDE.md#39-reading-stats-fork) and [docs/reading-stats.md](docs/reading-stats.md).
+
+- The reader records your reading sessions and page turns on the SD card (EPUB, TXT and Markdown). Nothing leaves
+  the reader, except in your own Home Backup.
+- Active reading time leaves out pauses: a page that stays open much longer than you usually need for it counts as a
+  pause. The usual speed is learned for each book.
+- **Reading Stats** (Home, or the reader menu) shows today, this week, month and year, your reading streak, books
+  finished this year, and bar charts of reading time per day, week, month and year. Tap a day to see its sessions.
+- Opens under a minute or without a page turn are left out (**Ignore Short Opens in Stats**, on by default). Hold a book on
+  Home and choose **Hide from Stats** to leave a test book out.
+
 ### Sleep screen
 
 Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).

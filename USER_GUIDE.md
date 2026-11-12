@@ -38,6 +38,7 @@ Welcome to the **CrossPoint** firmware. This guide outlines the hardware control
       - [Cover settings](#cover-settings)
       - [Custom images](#custom-images)
     - [3.8 Custom Fonts (SD Card)](#38-custom-fonts-sd-card)
+    - [3.9 Reading Stats (fork)](#39-reading-stats-fork)
   - [4. Reading Mode](#4-reading-mode)
     - [Page Turning](#page-turning)
     - [Chapter Navigation](#chapter-navigation)
@@ -112,9 +113,9 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 ### 3.1 Home Screen
 
-The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, **[Browse Files](#33-browse-files-screen)**, the **[Library](#34-library-screen)**, **[File Transfer](#35-file-transfer-screen)**, or **[Settings](#36-settings)**.
+The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, **[Browse Files](#33-browse-files-screen)**, the **[Library](#34-library-screen)**, **[File Transfer](#35-file-transfer-screen)**, **[Reading Stats](#39-reading-stats-fork)** (this fork), or **[Settings](#36-settings)**.
 
-**Remove a book from Recents (this fork):** long-press a book's cover (or its Continue Reading row), or select it and hold **Confirm** for one second (devices with a Confirm button). A menu with the book's title offers **Open** and **Remove from Recents**. Remove asks you to confirm; Home then shows the list without the book. Only the Recents entry is removed: the book file, reading progress, bookmarks and per-book settings stay. Home shows only books from your Recents, newest first, as many as fit: the same books that come first in the Library's **Recent** tab. In the Cover Grid, empty places stay empty. A removed book stays off Home until you open it again. With touch locked (BOOX Picco), hold Up on Home to unlock touch first.
+**Remove a book from Recents (this fork):** long-press a book's cover (or its Continue Reading row), or select it and hold **Confirm** for one second (devices with a Confirm button). A menu with the book's title offers **Open** and **Remove from Recents**, and **Hide from Stats** or **Show in Stats** once the book has [reading statistics](#39-reading-stats-fork). Remove asks you to confirm; Home then shows the list without the book. Only the Recents entry is removed: the book file, reading progress, bookmarks and per-book settings stay. Home shows only books from your Recents, newest first, as many as fit: the same books that come first in the Library's **Recent** tab. In the Cover Grid, empty places stay empty. A removed book stays off Home until you open it again. With touch locked (BOOX Picco), hold Up on Home to unlock touch first.
 
 **Placeholder cover (this fork):** if an EPUB's cover cannot be made into a thumbnail, Home shows a placeholder and stops trying. To try again, open the book and use **Delete Book Cache** in the reader menu.
 
@@ -336,6 +337,8 @@ The Reader settings are:
 - **Dictionary**: Select the StarDict dictionary used for word lookups while reading, or "None" to disable lookups. *(Only shown when at least one dictionary folder exists under `/dictionaries/` on the SD card — see [docs/dictionary.md](docs/dictionary.md) for setup and usage.)*
 
 - **Save Vocabulary Lookups**: Save each successful lookup started from a book page to `/Vocabulary.txt` ([format](docs/dictionary.md#vocabulary-history)). On by default in this fork. *(Shown with **Dictionary**.)*
+
+- **Ignore Short Opens in Stats** (this fork): Leave reading sessions under a minute, or without a page turn, out of the [Reading Stats](#39-reading-stats-fork). They stay recorded; switching this changes the totals at once. On by default.
 
 - **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly.
 
@@ -637,7 +640,7 @@ What a run does:
 1. **Fetches queued books**: every file in the server's `/to-reader/` folder is downloaded into `/books` (as `name (2).epub` if the name exists), then deleted from `/to-reader/`. Files whose size still changes during a 2-second check, such as a browser upload in progress, wait for the next run.
 2. **Uploads changes**: only files that changed since the last run (tracked in `/.crosspoint/backup/manifest.tsv`) are sent. It never deletes anything on the server.
 
-Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, per-book text settings (`book-settings/`), `settings.json`, `state.json` and `recent.json`. Excluded: Wi-Fi, sync and OPDS logins and tokens, the backup login and certificate, and layout caches the reader rebuilds.
+Included: everything on the card (books, fonts, dictionaries, screenshots, sleep images) plus reading progress, bookmarks, clippings, per-book text settings (`book-settings/`), reading statistics (`stats/`), `settings.json`, `state.json` and `recent.json`. Excluded: Wi-Fi, sync and OPDS logins and tokens, the backup login and certificate, and layout caches the reader rebuilds.
 
 For an `https://` server the reader trusts only one pinned certificate: copy the server's certificate (PEM) to `/.crosspoint/backup-ca.pem` on the SD card, directly (USB drive mode or a card reader); File Transfer cannot change it. Without it the backup does not start, and Last backup shows "(no certificate)". See [docs/home-backup.md](docs/home-backup.md) for the server side.
 
@@ -715,6 +718,20 @@ Once installed, custom fonts appear in **Text Settings → Font** alongside the 
 If the reader shows **Damaged font file**, a `.cpfont` file on the SD card is broken (for example, from an interrupted copy). The affected characters are drawn blank. Delete the font family's folder and install it again.
 
 See [docs/sd-card-fonts.md](./docs/sd-card-fonts.md) for full installation details and SD card folder structure.
+
+### 3.9 Reading Stats (fork)
+
+The reader records your reading in EPUB, TXT and Markdown books (not XTC) and shows it on the **Reading Stats** screen. Open it from Home (the bar chart icon in the row of icons at the bottom of Home in the Cover Grid theme, or **Reading Stats** in the Home list of the other themes) or from the Reader Menu. **Back** returns to where you opened it: Home or the book.
+
+**What counts.** A session runs from opening a book to closing it, going Home, or sleep. Only *active* time counts: if a page stays open much longer than you usually need for that much text in this book, the extra time is a pause. Time with the Reader Menu (or a screen opened from it) or this screen over the book does not count; looking words up does. The reader learns your speed for each book as you turn pages; until it knows it, it uses your speed in other books, or else counts at most 5 minutes per page. Sessions of a book less than 10 minutes apart (you turned the reader off and on again) are one sitting; sittings are stored for later views. With **Ignore Short Opens** on (default), sessions under a minute or without a page turn are left out. Days and charts need the clock: reading while the clock is not set counts only in **Total**.
+
+**Overview.** Today, This Week (from Monday), This Month, This Year, Total, Current Streak (days in a row with reading, up to today or yesterday), Longest Streak, Books Finished This Year (a book counts when a session takes it past 99%, or to the end-of-book screen), and the **Ignore Short Opens** switch.
+
+**Days, Weeks, Months, Years.** Bar charts of active time: the last 30 days, 26 weeks, 12 months, and up to 10 years. The line above the chart names the selected bar and its time; the line below it gives the total and average of the chart. Tap a bar to select it; tap the arrows, or swipe right (older) and left (newer), to page in time. With the buttons, Up/Down (or Left/Right) walk the bars and page back when you go past the oldest one; holding a button changes the tab. On **Days**, tapping a bar (or Confirm) opens the day's sessions: book, start and end time, active time.
+
+**Hide a book.** Hold the book on Home and choose **Hide from Stats** (for example a test book). Its sessions stay recorded but are left out of the totals and charts until you choose **Show in Stats**.
+
+The data is in `/.crosspoint/stats/` on the SD card and stays on the reader (Home Backup copies it to your own server). **Clear Reading Cache** does not delete it; delete the folder to start over. Formats and rules: [docs/reading-stats.md](docs/reading-stats.md).
 
 ---
 
@@ -801,6 +818,7 @@ Available options include:
 - **Go to %** – Jump to a specific position in the book by percentage.
 - **Take screenshot** – Save a screenshot of the current page to the `screenshots/` folder.
 - **Show page as QR** – Display a QR code encoding the current reading position.
+- **Reading Stats** (this fork) – Open the [Reading Stats](#39-reading-stats-fork) screen; Back returns to the book.
 - **Go Home** – Close the book and return to the Home screen.
 - **Sync Progress** – Push or pull reading progress with a KOReader sync server (see [KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)). This entry appears when sync credentials are saved or an enabled plugin subscribes to device events. Without sync credentials, it connects to Wi-Fi to send queued plugin events.
 - **Delete Book Cache** – Clear the cached layout data for the current book, forcing a re-index on next open.

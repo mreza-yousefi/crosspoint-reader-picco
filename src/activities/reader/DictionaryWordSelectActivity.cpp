@@ -9,6 +9,7 @@
 #include "CrossPointSettings.h"
 #include "DictionaryDefinitionActivity.h"
 #include "components/UITheme.h"
+#include "stats/ReadingStats.h"
 
 namespace {
 
@@ -20,6 +21,8 @@ void indexBuildYield(void*) { vTaskDelay(1); }
 
 void DictionaryWordSelectActivity::onEnter() {
   Activity::onEnter();
+  // Looking a word up is part of reading, also when started from the menu.
+  READING_STATS.setPaused(false);
   fontId = SETTINGS.getReaderFontId();
   // No busy popup by default: the pressed Look Up button already acknowledged
   // the tap, and each extra e-ink refresh here costs ~0.5 s (see performLookup).
@@ -78,6 +81,7 @@ void DictionaryWordSelectActivity::performLookup() {
       RenderLock lock;
       page.reset();
     }
+    READING_STATS.noteEvent(stats::EVENT_LOOKUP);
     if (SETTINGS.vocabularyHistoryEnabled &&
         !VocabularyStore::append(vocabulary, lookupText, headword, definition, dict.definitionsAreHtml())) {
       LOG_ERR("VOCAB", "Could not save successful dictionary lookup");

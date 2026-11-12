@@ -4,6 +4,7 @@
 #include <common/FsApiConstants.h>  // for oflag_t
 #include <freertos/semphr.h>
 
+#include <ctime>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,6 +25,10 @@ class HalStorage {
   HalStorage();
   bool begin();
   bool ready() const;
+  // Dates files get when created or modified: localNow fills the local time, or returns false
+  // when the time is not known (then SdFat's default date). Without a clock, modification
+  // dates never change.
+  void setFileClock(bool (*localNow)(struct tm& out));
   // Stop the SD card for deep sleep: unmount, stop the SDMMC host, and release
   // the bus pads (no-op on SPI boards). Call only after all file users have
   // stopped; open HalFiles become invalid. A deep-sleep wake resets the MCU and

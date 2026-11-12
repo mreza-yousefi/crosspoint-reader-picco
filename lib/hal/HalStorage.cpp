@@ -3,6 +3,8 @@
 #include <FS.h>  // need to be included before SdFat.h for compatibility with FS.h's File class
 #include <Logging.h>
 #include <SDCardManager.h>
+#include <SdFatConfig.h>
+#include <common/FsDateTime.h>
 #include <esp_heap_caps.h>
 #if FREEINK_CAP_USB_MSC
 #include <UsbMassStorage.h>
@@ -16,7 +18,30 @@ namespace {
 #if FREEINK_CAP_USB_MSC
 freeink::UsbMassStorage usbMassStorage;
 #endif
+
+bool (*fileClock)(struct tm& out) = nullptr;
+
+// SdFat date callback, called under the storage lock when a file is created or synced.
+void fatDateTime(uint16_t* date, uint16_t* time) {
+  struct tm local{};
+  if (!fileClock || !fileClock(local) || local.tm_year + 1900 < 1980) {
+    *date = FS_DEFAULT_DATE;
+    *time = FS_DEFAULT_TIME;
+    return;
+  }
+  *date = FS_DATE(local.tm_year + 1900, local.tm_mon + 1, local.tm_mday);
+  *time = FS_TIME(local.tm_hour, local.tm_min, local.tm_sec);
+}
 }  // namespace
+
+void HalStorage::setFileClock(bool (*localNow)(struct tm& out)) {
+  fileClock = localNow;
+  if (localNow) {
+    FsDateTime::setCallback(&fatDateTime);
+  } else {
+    FsDateTime::clearCallback();
+  }
+}
 
 HalStorage HalStorage::instance;
 

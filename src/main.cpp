@@ -204,6 +204,15 @@ static void powerPanelDownForSleep() {
   display.powerOffBetweenFrames();
 }
 
+// Local time for file dates, only while the clock is trusted.
+static bool trustedLocalTime(struct tm& out) {
+  const int64_t now = trustedtime::trustedNow();
+  if (now <= 0) return false;
+  const time_t t = static_cast<time_t>(now);
+  localtime_r(&t, &out);
+  return true;
+}
+
 // Returns instead of rebooting when sleep supersedes the reboot; callers keep
 // running in that case.
 static void silentRestartTo(const uint32_t target, const char* targetName) {
@@ -808,6 +817,9 @@ void setup() {
   // Restore the monotonic clock floor before anything reads time() (event
   // timestamps, loan-expiry checks).
   trustedtime::init();
+  // File dates from the trusted clock: a file rewritten in place keeps its size, and Home
+  // Backup sees the change by its modification time.
+  Storage.setFileClock(&trustedLocalTime);
   bleturner::begin(pageturner::host, SETTINGS.ble);
 
   // Brightness and warmth are always restored. A normal wake starts with the

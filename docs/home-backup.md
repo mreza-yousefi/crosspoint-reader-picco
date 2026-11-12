@@ -50,6 +50,9 @@ Wi-Fi, sync and OPDS logins and tokens, `backup.json` and `backup-ca.pem` stay o
 - Files of 64 KB or less are compared by CRC32 (progress files keep their size; FAT dates are unreliable without a
   clock).
 - Larger files are compared by size and modification time.
+- File dates come from the reader's clock (`HalStorage::setFileClock`), so a file rewritten in place with the same
+  size still gets a new modification time. While the clock is not trusted, files get SdFat's fixed default date, and
+  a larger file changed in place without a size change is missed until it changes again with the clock set.
 
 ## Code map
 

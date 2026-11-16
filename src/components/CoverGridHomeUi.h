@@ -18,8 +18,11 @@ class CoverGridHomeUi final : public UiAppHost {
   static constexpr int GRID_ROWS = 2;
   static constexpr int MAX_BOOKS = 1 + GRID_COLUMNS * GRID_ROWS;
   static_assert(MAX_BOOKS <= HomeCoverCache::MAX_COVERS);
+  // What the third tab opens; NONE hides it.
+  enum class SlotTab : uint8_t { NONE, PLUGINS, OPDS };
+
   explicit CoverGridHomeUi(GfxRenderer& renderer);
-  void begin(const std::vector<RecentBook>& books, bool hasOpds, bool hasContinueReading);
+  void begin(const std::vector<RecentBook>& books, SlotTab slotTab, bool hasContinueReading);
   void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
   // Touched book or tab index (-1 for none); longPress for a touch hold.
@@ -58,7 +61,7 @@ class CoverGridHomeUi final : public UiAppHost {
   int pending = -1;
   bool pendingLongPress = false;
   int progress = -1;
-  bool hasOpds = false;
+  SlotTab slotTab = SlotTab::NONE;
   bool hasContinueReading = false;
   char progressText[12]{};
   // Component styles and interaction tables stay off the render task's stack.

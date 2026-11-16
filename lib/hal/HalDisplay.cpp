@@ -71,6 +71,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
     einkDisplay.requestResync(1);
   }
 
+  idlePowerOffDone = false;
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
 }
 
@@ -79,6 +80,7 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
     einkDisplay.requestResync(1);
   }
 
+  idlePowerOffDone = false;
   einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
 }
 
@@ -97,6 +99,7 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
     einkDisplay.requestResync(1);
   }
 
+  idlePowerOffDone = false;
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
 }
 
@@ -108,6 +111,16 @@ bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 
 void HalDisplay::deepSleep() { einkDisplay.deepSleep(); }
 
+void HalDisplay::controllerIdle() {
+  if (canHoldPanelPower()) {
+    // The SDK's controllerIdle() does nothing on the SSD2677, which Fast Page Turns keeps powered.
+    if (!idlePowerOffDone) einkDisplay.powerOffBetweenFrames();
+    idlePowerOffDone = true;
+    return;
+  }
+  einkDisplay.controllerIdle();
+}
+
 uint8_t* HalDisplay::getFrameBuffer() const { return einkDisplay.getFrameBuffer(); }
 
 uint8_t* HalDisplay::lendFrameBufferStorage(uint32_t* sizeOut) { return einkDisplay.lendBuildStorage(sizeOut); }
@@ -116,6 +129,7 @@ void HalDisplay::returnFrameBufferStorage() { einkDisplay.returnBuildStorage(); 
 
 bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, RefreshMode fallback, bool turnOffScreen) {
   if (gpio.deviceIsX3() && fallback == HALF_REFRESH) einkDisplay.requestResync();
+  idlePowerOffDone = false;
   return einkDisplay.displayGrayscaleBase(mode, static_cast<EInkDisplay::RefreshMode>(fallback), turnOffScreen);
 }
 
@@ -135,12 +149,17 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
     einkDisplay.requestResync(1);
   }
 
+  idlePowerOffDone = false;
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
 }
 
-void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }
+void HalDisplay::preconditionGrayscale() {
+  idlePowerOffDone = false;
+  einkDisplay.preconditionGrayscale();
+}
 
 void HalDisplay::preconditionGrayscale(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  idlePowerOffDone = false;
   einkDisplay.preconditionGrayscale(x, y, w, h);
 }
 
@@ -150,7 +169,10 @@ void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay
 
 void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) { einkDisplay.cleanupGrayscaleBuffers(bwBuffer); }
 
-void HalDisplay::displayGrayBuffer(bool turnOffScreen) { einkDisplay.displayGrayBuffer(turnOffScreen); }
+void HalDisplay::displayGrayBuffer(bool turnOffScreen) {
+  idlePowerOffDone = false;
+  einkDisplay.displayGrayBuffer(turnOffScreen);
+}
 
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
   einkDisplay.writeGrayscalePlaneStrip(lsbPlane ? EInkDisplay::GRAY_PLANE_LSB : EInkDisplay::GRAY_PLANE_MSB, rows,

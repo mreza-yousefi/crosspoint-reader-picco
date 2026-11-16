@@ -16,14 +16,20 @@ class HalDisplay {
   GrayscaleCapabilities grayscaleCapabilities(GrayscaleMode mode = GrayscaleMode::Overlay) const;
   // Controller of the driver chosen at boot (null if the driver does not say).
   const char* controllerName() const { return einkDisplay.getControllerName(); }
-  // True on the Picco SSD2677: a panel whose SDK default is power-off after
-  // each refresh, and which the fork keeps powered unless the caller turns the
-  // screen off (Fast Page Turns setting).
+  // True on the Picco SSD2677: upstream powers it off after book pages and
+  // redraws; the fork driver follows the caller's turn-off flag instead, so it
+  // stays powered unless the screen is turned off (Fast Page Turns setting).
   bool canHoldPanelPower() const;
   // Powers the panel's analog circuitry down after a finished frame; RAM and
   // the partial-refresh baseline stay. Picco only (SDK no-op elsewhere). Call
   // under the render lock.
   void powerOffBetweenFrames() { einkDisplay.powerOffBetweenFrames(); }
+  // True while book pages are presented; panels with a reading waveform use it.
+  void setReaderRefresh(bool reading) { einkDisplay.setReaderRefresh(reading); }
+  bool displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool restore) {
+    idlePowerOffDone = false;
+    return einkDisplay.displayRetainedGrayscaleOverlay(x, y, w, h, restore);
+  }
 
   // Constructor with pin configuration
   HalDisplay();
@@ -84,6 +90,9 @@ class HalDisplay {
 
   // Power management
   void deepSleep();
+  // Power the panel down between frames, keeping its image; the next paint wakes it.
+  // Called every loop while idle; on the Picco SSD2677 it powers down once per idle period.
+  void controllerIdle();
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;
@@ -138,6 +147,8 @@ class HalDisplay {
 
  private:
   EInkDisplay einkDisplay;
+  // controllerIdle() powered the SSD2677 down; cleared by the next paint, which powers it on.
+  bool idlePowerOffDone = false;
 };
 
 extern HalDisplay display;

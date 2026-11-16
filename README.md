@@ -14,7 +14,7 @@ A detailed list is in [docs/fork-features.md](docs/fork-features.md).
 
 Details: [User Guide, Controls](USER_GUIDE.md#363-controls).
 
-- The slide switch is a touch lock toggle (setting **Slide Switch: Touch Reader Controls**). Touch is ignored, the
+- The slide switch is a touch lock toggle (setting **Slide Switch: Touch controls while reading**). Touch is ignored, the
   side buttons still turn pages, and the lock stays on through sleep.
 - In the light panel, the touch tile (pointer icon) turns the lock on or off. Locking closes the panel.
 - A padlock shows the lock in the top bar and at the top of the book page.

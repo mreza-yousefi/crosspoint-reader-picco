@@ -51,9 +51,13 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          "refreshFrequency", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, homeThemeValues(), "uiTheme",
                          StrId::STR_CAT_DISPLAY));
-  if (!BoardConfig::hasTouch())
-    emit(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
-                             StrId::STR_CAT_DISPLAY));
+  if (!BoardConfig::hasTouch()) {
+    auto fadingFix = SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
+                                         StrId::STR_CAT_DISPLAY);
+    // Keep it persisted, but do not offer it where the renderer ignores it.
+    if (!CrossPointSettings::fadingFixSupported()) fadingFix.withWebHidden();
+    emit(fadingFix);
+  }
   // Hidden by isHiddenOnDevice() unless the panel probe found the SSD2677.
   if (BoardConfig::isPicco())
     emit(SettingInfo::Toggle(StrId::STR_FAST_PAGE_TURNS, &CrossPointSettings::fastPageTurns, "fastPageTurns",
@@ -187,9 +191,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          "longPressButtonBehavior", StrId::STR_CAT_CONTROLS));
   emit(buildLongPressMenuSetting());
   // Double-click power frontlight shortcut only exists on the X4 Pro.
-  if (BoardConfig::isX4Pro())
-    emit(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
-                             "doubleClickPwrLight", StrId::STR_CAT_CONTROLS));
+  if (BoardConfig::isX4Pro()) emit(buildDoublePowerButtonSetting());
   emit(buildShortPowerButtonSetting());
   // Always persisted; isHiddenOnDevice() hides it when the IMU probe fails.
   emit(SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
@@ -213,6 +215,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
       "sleepTimeoutMinutes", StrId::STR_CAT_SYSTEM));
   emit(SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                            StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Toggle(StrId::STR_SHOW_FILE_EXTENSIONS, &CrossPointSettings::showFileExtensions,
+                           "showFileExtensions", StrId::STR_CAT_SYSTEM));
   emit(SettingInfo::Toggle(StrId::STR_LIBRARY_USE_METADATA, &CrossPointSettings::libraryUseMetadata,
                            "libraryUseMetadata", StrId::STR_CAT_SYSTEM));
   emit(SettingInfo::Toggle(StrId::STR_REMOVE_READ_FROM_RECENTS, &CrossPointSettings::removeReadBooksFromRecents,

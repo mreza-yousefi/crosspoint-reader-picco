@@ -32,7 +32,7 @@ int HomeActivity::getMenuItemCount() const {
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
-  if (hasLibrarySlot()) {
+  if (slotItem() != HomeMenuItem::NONE) {
     count++;
   }
   return count;
@@ -144,7 +144,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
         if (FsHelpers::hasReflowableBookExtension(book.path)) {
           Epub epub(book.path, "/.crosspoint");
           // Skip loading css since we only need metadata here
-          epub.load(false, true);
+          const bool cacheLoaded = epub.load(false, true);
 
           // Try to generate thumbnail image for Continue Reading card
           if (!showingLoading) {
@@ -152,7 +152,10 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
           }
           GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-          bool success = epub.generateThumbBmp(thumbHeight);
+          // Without a book cache (e.g. after "Delete Book Cache") there is no cached metadata,
+          // so read the cover location straight from the EPUB.
+          bool success =
+              cacheLoaded ? epub.generateThumbBmp(thumbHeight) : epub.generateThumbBmpFromSource(thumbHeight);
           if (!success) {
             RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
             book.coverBmpPath = "";
@@ -204,7 +207,7 @@ void HomeActivity::onEnter() {
   reloadBookList();
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, slotItem());
 
   // Trigger first update
   requestUpdate();
@@ -216,7 +219,12 @@ void HomeActivity::reloadBookList() {
   hasContinueReading = !recentBooks.empty();
   if (coverGridUi) {
     resolveGridCoverPaths();
-    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
+    const HomeMenuItem slot = slotItem();
+    coverGridUi->begin(recentBooks,
+                       slot == HomeMenuItem::PLUGINS        ? CoverGridHomeUi::SlotTab::PLUGINS
+                       : slot == HomeMenuItem::OPDS_BROWSER ? CoverGridHomeUi::SlotTab::OPDS
+                                                            : CoverGridHomeUi::SlotTab::NONE,
+                       hasContinueReading);
   }
 }
 
@@ -344,15 +352,18 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
+    switch (indexToMenuItem(menuIndex, slotItem())) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
       case HomeMenuItem::LIBRARY:
         onLibraryOpen();
         break;
-      case HomeMenuItem::OPDS_BROWSER:  // the library slot
-        hasPlugins ? onPluginsOpen() : onOpdsBrowserOpen();
+      case HomeMenuItem::PLUGINS:
+        onPluginsOpen();
+        break;
+      case HomeMenuItem::OPDS_BROWSER:
+        onOpdsBrowserOpen();
         break;
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
@@ -604,9 +615,9 @@ void HomeActivity::render(RenderLock&&) {
                                         tr(STR_READING_STATS), tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Stats, Settings};
 
-  if (hasLibrarySlot()) {
+  if (slotItem() != HomeMenuItem::NONE) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Plugins);
+    menuIcons.insert(menuIcons.begin() + 2, hasPlugins ? Plugins : Book);
   }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -633,10 +644,8 @@ void HomeActivity::render(RenderLock&&) {
 
   renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
 
-  if (!firstRenderDone) {
-    firstRenderDone = true;
-    requestUpdate();
-  } else if (!recentsLoaded && !recentsLoading) {
+  firstRenderDone = true;
+  if (!recentsLoaded && !recentsLoading) {
     recentsLoading = true;
     const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
     loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
@@ -657,4 +666,4 @@ void HomeActivity::onReadingStatsOpen() { activityManager.goToReadingStats(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
-void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(); }

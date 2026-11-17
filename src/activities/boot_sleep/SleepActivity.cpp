@@ -57,9 +57,10 @@ HalDisplay::GrayscaleMode sleepGrayscaleMode(const GfxRenderer& renderer) {
              : HalDisplay::GrayscaleMode::Absolute;
 }
 
-// Picco redraws its battery strip over the sleep image with a fast B/W
-// refresh. An absolute gray image loses its grays to that, so the Picco keeps
-// the overlay path.
+// Picco keeps the overlay path for its battery strip, which is redrawn over
+// the sleep image: the SSD2677 draws it over the overlay grays and keeps them.
+// SSD1677 Picco panels keep grays under a strip only after an absolute image,
+// so on them the strip falls back to a FAST B/W refresh.
 bool sleepAbsoluteGray(const GfxRenderer& renderer) {
 #if FREEINK_DEVICE_PICCO
   (void)renderer;

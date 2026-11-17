@@ -10,7 +10,10 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "ReadingStatsBooksActivity.h"
 #include "ReadingStatsDayActivity.h"
+#include "ReadingStatsHoursActivity.h"
+#include "ReadingStatsPeriodActivity.h"
 #include "StatsText.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -56,8 +59,12 @@ void ReadingStatsActivity::onEnter() {
   rows[ROW_STREAK].label = tr(STR_STATS_CURRENT_STREAK);
   rows[ROW_LONGEST].label = tr(STR_STATS_LONGEST_STREAK);
   rows[ROW_FINISHED].label = tr(STR_STATS_FINISHED_THIS_YEAR);
+  rows[ROW_BOOKS].label = tr(STR_STATS_BOOKS);
+  rows[ROW_HIDDEN].label = tr(STR_STATS_HIDDEN_BOOKS);
+  rows[ROW_WHEN].label = tr(STR_STATS_WHEN_I_READ);
   rows[ROW_IGNORE_SHORT].label = tr(STR_STATS_IGNORE_SHORT_OPENS);
   RenderLock lock;
+  if (READING_STATS.needsLogRebuild()) GUI.drawPopup(renderer, tr(STR_STATS_UPDATING));
   READING_STATS.prepareSummaries();
   loadData();
 }
@@ -103,7 +110,7 @@ void ReadingStatsActivity::computeOverview() {
   }
   setDuration(ROW_TOTAL, sumDays(data.days, INT32_MIN, INT32_MAX) + data.unknownTimeSec);
   setDays(ROW_LONGEST, streaks.longest);
-  for (int i = 0; i < ROW_IGNORE_SHORT; ++i) rows[i].value = rowValues[i];
+  for (int i = 0; i <= ROW_FINISHED; ++i) rows[i].value = rowValues[i];
 }
 
 Range ReadingStatsActivity::range() const {
@@ -239,11 +246,19 @@ void ReadingStatsActivity::pageTrampoline(const fui::ActionEvent& event, void* u
 
 void ReadingStatsActivity::activateIndex(const int index) {
   if (!chartTab()) {
-    if (index == ROW_IGNORE_SHORT) toggleIgnoreShortOpens();
+    if (index == ROW_IGNORE_SHORT) {
+      toggleIgnoreShortOpens();
+    } else if (index == ROW_BOOKS || index == ROW_HIDDEN || index == ROW_WHEN) {
+      openOverviewScreen(index);
+    }
     return;
   }
   if (tab == TAB_DAYS) {
     openDay(index);
+    return;
+  }
+  if (tab == TAB_WEEKS || tab == TAB_MONTHS) {
+    openPeriod(index);
     return;
   }
   moveRingTo(index + 1);
@@ -269,6 +284,56 @@ void ReadingStatsActivity::openDay(const int bar) {
     return;
   }
   startActivityForResult(std::move(day), [this](const ActivityResult&) { requestUpdate(); });
+}
+
+void ReadingStatsActivity::openPeriod(const int bar) {
+  if (bar < 0 || bar >= barCount) return;
+  const int32_t bucket = firstBucket + bar;
+  int32_t firstDay = 0;
+  int32_t lastDay = 0;
+  stats::bucketDays(range(), bucket, firstDay, lastDay);
+  // The bar's title without its total.
+  char title[48];
+  if (range() == Range::Week) {
+    char start[24];
+    statstext::dayShort(firstDay, start, sizeof(start));
+    snprintf(title, sizeof(title), tr(STR_STATS_WEEK_OF), start);
+  } else {
+    char month[16];
+    statstext::monthName(static_cast<unsigned>(bucket % 12) + 1, month, sizeof(month));
+    snprintf(title, sizeof(title), "%s %d", month, static_cast<int>(bucket / 12));
+  }
+  auto period = makeUniqueNoThrow<ReadingStatsPeriodActivity>(renderer, mappedInput, firstDay, lastDay, title);
+  if (!period) {
+    LOG_ERR("STATS", "OOM: period list");
+    return;
+  }
+  app.clearTapFlash();
+  startActivityForResult(std::move(period), [this](const ActivityResult&) { requestUpdate(); });
+}
+
+void ReadingStatsActivity::openOverviewScreen(const int row) {
+  std::unique_ptr<Activity> screen;
+  if (row == ROW_WHEN) {
+    screen = makeUniqueNoThrow<ReadingStatsHoursActivity>(renderer, mappedInput);
+  } else {
+    screen = makeUniqueNoThrow<ReadingStatsBooksActivity>(
+        renderer, mappedInput,
+        row == ROW_HIDDEN ? ReadingStatsBooksActivity::Mode::Hidden : ReadingStatsBooksActivity::Mode::All);
+  }
+  if (!screen) {
+    LOG_ERR("STATS", "OOM: stats screen");
+    return;
+  }
+  app.clearTapFlash();
+  startActivityForResult(std::move(screen), [this](const ActivityResult&) {
+    // A book may have been hidden or shown again.
+    {
+      RenderLock lock;
+      loadData();
+    }
+    requestUpdate();
+  });
 }
 
 bool ReadingStatsActivity::handleCustomInput() {
@@ -328,7 +393,9 @@ void ReadingStatsActivity::drawFooter() {
     confirm = tr(STR_TOGGLE);
   } else if (!chartTab() && ring - 1 == ROW_IGNORE_SHORT) {
     confirm = tr(STR_TOGGLE);
-  } else if (tab == TAB_DAYS) {
+  } else if (!chartTab() && (ring - 1 == ROW_BOOKS || ring - 1 == ROW_HIDDEN || ring - 1 == ROW_WHEN)) {
+    confirm = tr(STR_OPEN);
+  } else if (tab == TAB_DAYS || tab == TAB_WEEKS || tab == TAB_MONTHS) {
     confirm = tr(STR_OPEN);
   }
   const auto labels = chartTab()

@@ -6,7 +6,8 @@
 
 #include "activities/UiListActivity.h"
 
-// The counted reading sessions of one local day: book, start and end time, active time.
+// The counted reading sessions of one local day: book, start and end time, active time,
+// dictionary time. Confirm opens the session's book.
 class ReadingStatsDayActivity final : public UiListActivity {
  public:
   ReadingStatsDayActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int32_t day);
@@ -15,8 +16,9 @@ class ReadingStatsDayActivity final : public UiListActivity {
  private:
   int listCount() const override { return static_cast<int>(items.size()); }
   void buildScreen(UiScreen& screen) override;
-  void activateIndex(int) override {}
+  void activateIndex(int index) override;
   const char* headerTitle() const override { return title; }
+  void drawFooter() override;
 
   int32_t day;
   char title[48] = {};
@@ -25,4 +27,5 @@ class ReadingStatsDayActivity final : public UiListActivity {
   std::vector<std::string> subtitles;
   std::vector<std::string> values;
   std::vector<freeink::ui::ListItem> items;
+  std::vector<uint16_t> books;  // book index per row
 };

@@ -30,6 +30,11 @@ constexpr uint16_t DEFAULT_PAGE_CHARS = 1000;
 constexpr int BUCKETS_PER_OCTAVE = 4;
 // Raw records store this offset when the page's text offset is not known.
 constexpr uint32_t UNKNOWN_OFFSET = 0xFFFFFFFF;
+// A session ended by automatic sleep counts its last stretch at most as one typical page dwell
+// (median rate x typical page length); this before any rate is known.
+constexpr uint32_t IDLE_TRIM_DEFAULT_SEC = 60;
+// One dictionary sheet counts at most this long (a sheet left open with sleep set to Never).
+constexpr uint32_t DICT_MAX_SEC = 10 * 60;
 
 // --- Sessions -----------------------------------------------------------------------------
 // Short open: less active time than this, or no page turn. Ignored when the setting is on.
@@ -90,22 +95,39 @@ class ActiveClock {
   void pause(uint32_t nowMs);
   void resume(uint32_t nowMs);
   bool isPaused() const { return paused; }
-  // Active ms including the open dwell on the page on screen until nowMs.
-  uint32_t activeMsAt(uint32_t nowMs) const;
+  // Dictionary sheet over the page: its time is reading time, apart from the page dwell (no
+  // page cap, no speed sample), at most DICT_MAX_SEC per sheet. Opening it ends a pause; a page
+  // change or a pause closes it.
+  void dictionaryOpen(uint32_t nowMs);
+  void dictionaryClose(uint32_t nowMs);
+  bool inDictionary() const { return inDict; }
+  // Active ms including the open stretch (page dwell or dictionary) until nowMs. trimIdle:
+  // the session ended by automatic sleep, so the open stretch counts at most typicalDwellMs();
+  // not while paused (that dwell ended before the pause).
+  uint32_t activeMsAt(uint32_t nowMs, bool trimIdle = false) const;
+  // Dictionary ms until nowMs (part of activeMsAt).
+  uint32_t dictionaryMsAt(uint32_t nowMs, bool trimIdle = false) const;
+  // One page at the session's rate and typical page length; IDLE_TRIM_DEFAULT_SEC without a rate.
+  uint32_t typicalDwellMs() const;
   void setRate(float newRate) { rate = newRate; }
   uint16_t typicalPageChars() const { return typicalChars; }
   bool hasPage() const { return started; }
 
  private:
   uint32_t capMs(uint16_t chars) const;
+  // Counted part of the dwell on the page on screen (frozen while paused or in the dictionary).
+  uint32_t openDwellMs(uint32_t nowMs) const;
   float rate = 0.0f;
   uint16_t typicalChars = DEFAULT_PAGE_CHARS;
   bool started = false;
   bool paused = false;
+  bool inDict = false;
   PagePos last;
   uint32_t lastMs = 0;
   uint32_t pausedAtMs = 0;
-  uint32_t activeMs = 0;
+  uint32_t dictSinceMs = 0;
+  uint32_t activeMs = 0;  // closed page dwells
+  uint32_t dictMs = 0;    // closed dictionary stretches
 };
 
 bool isShortOpen(uint32_t activeSec, uint32_t turns);
@@ -144,8 +166,9 @@ class LogScanner {
 // Rebuilds SessionRecords from one book's raw-log records.
 class LogReplay {
  public:
-  // skipSeq: a session number not to emit (the one still running), 0 for none.
-  void begin(uint16_t bookIndex, float rate, uint16_t typicalPageChars, uint32_t skipSeq);
+  // skipSeq: a session number not to emit (the one still running), 0 for none. idleTrim:
+  // trim automatic-sleep sessions written before the trim (needs a learned book rate).
+  void begin(uint16_t bookIndex, float rate, uint16_t typicalPageChars, uint32_t skipSeq, bool idleTrim);
   // One framed record (size = bytes in record). True when it completed a session into out.
   bool feed(const uint8_t* record, size_t size, SessionRecord& out);
   // Closes a session the log left open; true when there was one.
@@ -157,6 +180,7 @@ class LogReplay {
   float rate = 0.0f;
   uint16_t typicalChars = 0;
   uint32_t skipSeq = 0;
+  bool idleTrim = false;
   bool open = false;
   SessionRecord rec{};
   ActiveClock clock;
@@ -204,5 +228,77 @@ enum class Range : uint8_t { Day, Week, Month, Year };
 int32_t bucketOf(Range range, int32_t day);
 // Active seconds per bucket for buckets [firstBucket, firstBucket + count).
 void bucketActive(const DayRecord* days, size_t dayCount, Range range, int32_t firstBucket, int count, uint32_t* out);
+// First and last local day of a bucket.
+void bucketDays(Range range, int32_t bucket, int32_t& firstDay, int32_t& lastDay);
+
+// --- Weekday x hour grid ------------------------------------------------------------------
+constexpr int GRID_CELLS = 7 * 24;
+// Spreads a session's active time evenly over the local hours its wall time covers; cell =
+// weekday (Monday = 0) x 24 + hour. Sessions without wall time add nothing.
+void addToHourGrid(uint32_t* grid, const SessionRecord& session);
+// Shade of a cell: 0 none, 1-3 thirds of the busiest cell.
+int gridShade(uint32_t value, uint32_t max);
+
+// --- Per book -----------------------------------------------------------------------------
+// One paper page, as PaperPages counts them.
+constexpr uint32_t PAPER_PAGE_CHARS = 1800;
+
+// Reading style rules (docs/reading-stats.md), checked in this order.
+enum class ReadingStyle : uint8_t { None, Stalled, Binge, Snacking, Steady, Intermittent };
+constexpr uint32_t STYLE_MIN_SESSIONS = 2;       // dated sessions before a style is given
+constexpr int32_t STALLED_DAYS = 30;             // unfinished, not read for this long
+constexpr uint32_t BINGE_DAY_SEC = 60 * 60;      // average per reading day
+constexpr uint32_t SNACK_SESSION_SEC = 10 * 60;  // average session shorter than this
+// Steady and Binge: reading on at least half of the days from the first to the last.
+
+struct StyleAcc {
+  int32_t firstDay = 0;
+  int32_t lastDay = 0;
+  uint32_t activeSec = 0;
+  uint16_t sessions = 0;
+  uint16_t days = 0;  // local days with reading
+};
+// Adds a counted session (the caller applies countsInTotals); undated sessions are skipped.
+void addStyleSession(StyleAcc& acc, const SessionRecord& session);
+// todayKnown false: the Stalled rule needs the date and is skipped.
+ReadingStyle classifyStyle(const StyleAcc& acc, bool finished, bool todayKnown, int32_t today);
+
+struct ProgressPoint {
+  int32_t day;
+  uint16_t percentBp;  // where the day's last session ended
+};
+// Points kept for the progress chart; past this every second one is dropped (the first and
+// the last stay), so the vector never grows past MAX_PROGRESS_POINTS + 1.
+constexpr size_t MAX_PROGRESS_POINTS = 128;
+
+// Everything the per-book screens show, from the book's sessions in order.
+struct BookAggregate {
+  BookTotals totals{};  // as booktotals.bin
+  StyleAcc style;
+  uint32_t lookups = 0;
+  uint32_t dictSec = 0;
+  uint16_t firstPercentBp = 0;  // where the first counted session started
+  bool hasFirst = false;
+  uint16_t lastPaperPage = 0;    // latest known, 0 = unknown
+  uint16_t paperPagesTotal = 0;  // latest known, 0 = unknown
+  int32_t finishedDay = 0;       // local day of the finish, when hasFinishedDay
+  bool hasFinishedDay = false;
+};
+// Adds one session of the book; returns countsInTotals. Points: the day's end position
+// for the progress chart (dated counted sessions), may be null; bounded by MAX_PROGRESS_POINTS.
+bool addBookSession(BookAggregate& agg, const SessionRecord& session, bool ignoreShort,
+                    std::vector<ProgressPoint>* points);
+// Paper pages per hour from the exact text read; 0 below 5 minutes of measured reading.
+uint32_t pagesPerHour(uint32_t charsRead, uint32_t learnedMs);
+// Active seconds left: from the paper pages left and the reading speed when both are known,
+// else from the time spent per percent so far; 0 when finished or not known.
+uint32_t secondsToFinish(const BookAggregate& agg);
+// Local days from the first dated session to the finish, both included, each by its own
+// offset; 0 when not finished or undated.
+int daysToFinish(const BookAggregate& agg);
+// Progress chart columns over [firstDay, lastDay]: the position at the end of each column's
+// last reading day, carried forward; 0 before the first point. points ascending by day.
+void progressColumns(const ProgressPoint* points, size_t count, int32_t firstDay, int32_t lastDay, int columns,
+                     uint16_t* out);
 
 }  // namespace stats

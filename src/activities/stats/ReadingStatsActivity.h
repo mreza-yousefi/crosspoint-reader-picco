@@ -9,7 +9,8 @@
 // Reading statistics: an Overview list and bar charts of active reading time per day,
 // week, month and year. Chart tabs: the buttons walk the bars and page back in time at the
 // oldest one; touch taps a bar, the arrows or swipes left/right to page. A day bar opens
-// that day's sessions.
+// that day's sessions, a week or month bar its reading days. The Overview opens the book
+// lists and the weekday x hour grid.
 class ReadingStatsActivity final : public UiTabListActivity {
  public:
   // fromReader: pushed over a book (Back returns to it); otherwise opened from Home.
@@ -27,6 +28,9 @@ class ReadingStatsActivity final : public UiTabListActivity {
     ROW_STREAK,
     ROW_LONGEST,
     ROW_FINISHED,
+    ROW_BOOKS,
+    ROW_HIDDEN,
+    ROW_WHEN,
     ROW_IGNORE_SHORT,
     ROW_COUNT
   };
@@ -65,6 +69,9 @@ class ReadingStatsActivity final : public UiTabListActivity {
   // Bar the info line describes: the selected one, else the newest.
   int focusedBar() const;
   void openDay(int bar);
+  void openPeriod(int bar);
+  // Pushes a screen from the Overview; the data is loaded again when it closes.
+  void openOverviewScreen(int row);
   void toggleIgnoreShortOpens();
 
   void drawChart(UiScreen& screen, freeink::ui::Rect area);

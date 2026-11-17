@@ -3,6 +3,8 @@
 #include <HalStorage.h>
 #include <TrustedTime.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "ReadingStats.h"
 #include "StatsLogic.h"
@@ -14,11 +16,6 @@ bool readExact(HalFile& file, void* out, const size_t size) { return file.read(o
 
 bool ignoreShort() { return SETTINGS.statsIgnoreShortOpens != 0; }
 
-// The running session, when it counts in the calendar.
-bool liveCalendarSession(SessionRecord& live) {
-  bool hidden = false;
-  return READING_STATS.liveSession(live, hidden) && countsInCalendar(live, ignoreShort(), hidden);
-}
 }  // namespace
 
 int32_t today(bool& known) {
@@ -62,7 +59,7 @@ bool loadDayTotals(DayTotals& out) {
   return true;
 }
 
-void forEachCalendarSession(const SessionFn fn, void* ctx) {
+void forEachSession(const AnySessionFn fn, void* ctx) {
   std::vector<uint8_t> hidden;
   READING_STATS.loadHiddenFlags(hidden);
   {
@@ -74,12 +71,27 @@ void forEachCalendarSession(const SessionFn fn, void* ctx) {
       SessionRecord record{};
       while (readExact(file, &record, sizeof(record))) {
         if (record.bookIndex >= hidden.size()) continue;
-        if (countsInCalendar(record, ignoreShort(), hidden[record.bookIndex] != 0)) fn(ctx, record, false);
+        fn(ctx, record, false, hidden[record.bookIndex] != 0);
       }
     }
   }
   SessionRecord live{};
-  if (liveCalendarSession(live)) fn(ctx, live, true);
+  bool liveHidden = false;
+  if (READING_STATS.liveSession(live, liveHidden)) fn(ctx, live, true, liveHidden);
+}
+
+void forEachCalendarSession(const SessionFn fn, void* ctx) {
+  struct Context {
+    SessionFn fn;
+    void* ctx;
+    bool ignoreShort;
+  } context{fn, ctx, ignoreShort()};
+  forEachSession(
+      [](void* c, const SessionRecord& session, const bool live, const bool hidden) {
+        const auto& x = *static_cast<Context*>(c);
+        if (countsInCalendar(session, x.ignoreShort, hidden)) x.fn(x.ctx, session, live);
+      },
+      &context);
 }
 
 bool loadDaySessions(const int32_t day, std::vector<DaySession>& out) {
@@ -115,6 +127,109 @@ int countFinishedInYear(const int year) {
     if (yearOf(localDay(totals.finishedUtc, localTzOffsetMin(totals.finishedUtc))) == year) ++finished;
   }
   return finished;
+}
+
+bool loadBookList(const bool hiddenBooks, std::vector<BookListEntry>& out) {
+  out.clear();
+  std::vector<uint8_t> hidden;
+  READING_STATS.loadHiddenFlags(hidden);
+  const size_t count = hidden.size();
+  // While loading: 16 bytes per book here, 16 in the style counters, 1 for the finished flag.
+  std::vector<BookListEntry> books(count);
+  std::vector<StyleAcc> styles(count);
+  std::vector<uint8_t> finished(count, 0);
+  for (size_t i = 0; i < count; ++i) books[i].index = static_cast<uint16_t>(i);
+
+  struct Context {
+    std::vector<BookListEntry>* books;
+    std::vector<StyleAcc>* styles;
+    std::vector<uint8_t>* finished;
+    bool ignoreShort;
+  } context{&books, &styles, &finished, ignoreShort()};
+  forEachSession(
+      [](void* c, const SessionRecord& session, bool, bool) {
+        auto& x = *static_cast<Context*>(c);
+        if (session.bookIndex >= x.books->size()) return;
+        if (finishesBook(session)) (*x.finished)[session.bookIndex] = 1;
+        if (!countsInTotals(session, x.ignoreShort)) return;
+        BookListEntry& book = (*x.books)[session.bookIndex];
+        book.counted = true;
+        book.activeSec += session.activeSec;
+        if (hasWallTime(session)) book.lastUtc = std::max(book.lastUtc, session.startUtc);
+        addStyleSession((*x.styles)[session.bookIndex], session);
+      },
+      &context);
+
+  bool known = false;
+  const int32_t todayDay = today(known);
+  for (size_t i = 0; i < count; ++i) {
+    BookListEntry& book = books[i];
+    if (hiddenBooks ? hidden[i] == 0 : (hidden[i] != 0 || !book.counted)) continue;
+    book.style = classifyStyle(styles[i], finished[i] != 0, known, todayDay);
+    book.lastDay = styles[i].lastDay;
+    out.push_back(book);
+  }
+  std::sort(out.begin(), out.end(), [](const BookListEntry& a, const BookListEntry& b) {
+    return a.lastUtc != b.lastUtc ? a.lastUtc > b.lastUtc : a.index > b.index;
+  });
+  return true;
+}
+
+bool loadBookDetail(const uint16_t index, BookDetail& out, const bool full) {
+  out = BookDetail{};
+  std::vector<uint8_t> hidden;
+  READING_STATS.loadHiddenFlags(hidden);
+  if (index >= hidden.size()) return false;
+  out.hidden = hidden[index] != 0;
+
+  struct Context {
+    BookDetail* out;
+    uint16_t index;
+    bool ignoreShort;
+    bool full;
+    size_t next;  // ring position once MAX_BOOK_SESSIONS rows are kept
+  } context{&out, index, ignoreShort(), full, 0};
+  if (full) out.progress.reserve(MAX_PROGRESS_POINTS + 1);
+  forEachSession(
+      [](void* c, const SessionRecord& s, const bool live, bool) {
+        auto& x = *static_cast<Context*>(c);
+        if (s.bookIndex != x.index ||
+            !addBookSession(x.out->agg, s, x.ignoreShort, x.full ? &x.out->progress : nullptr) || !x.full) {
+          return;
+        }
+        const BookSessionRow row{s.startUtc,       s.durationSec,  s.activeSec, s.dictSec, s.tzOffsetMin,
+                                 s.startPercentBp, s.endPercentBp, s.lookups,   s.flags,   live};
+        auto& rows = x.out->sessions;
+        if (rows.size() < MAX_BOOK_SESSIONS) {
+          rows.push_back(row);
+        } else {
+          rows[x.next] = row;
+          x.next = (x.next + 1) % MAX_BOOK_SESSIONS;
+        }
+      },
+      &context);
+  auto& rows = out.sessions;
+  std::rotate(rows.begin(), rows.begin() + static_cast<std::ptrdiff_t>(context.next), rows.end());
+  std::reverse(rows.begin(), rows.end());
+
+  bool known = false;
+  const int32_t todayDay = today(known);
+  out.style = classifyStyle(out.agg.style, out.agg.totals.finishedUtc != 0, known, todayDay);
+  return true;
+}
+
+void loadHourGrid(const int32_t fromDay, uint32_t* grid) {
+  std::fill(grid, grid + GRID_CELLS, 0u);
+  struct Context {
+    int32_t fromDay;
+    uint32_t* grid;
+  } context{fromDay, grid};
+  forEachCalendarSession(
+      [](void* c, const SessionRecord& session, bool) {
+        const auto& x = *static_cast<Context*>(c);
+        if (localDay(session.startUtc, session.tzOffsetMin) >= x.fromDay) addToHourGrid(x.grid, session);
+      },
+      &context);
 }
 
 }  // namespace stats

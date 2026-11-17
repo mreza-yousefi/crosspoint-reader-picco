@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "stats/StatsLogic.h"
+
 // Text for the reading-stats screens: durations, dates and clock times in the UI language.
 namespace statstext {
 
@@ -19,5 +21,9 @@ void dayLong(int32_t day, bool withYear, char* out, size_t size);
 void dayShort(int32_t day, char* out, size_t size);
 // Minute of the day as "21:05" or "9:05 PM", following the clock setting.
 void clockTime(int minuteOfDay, char* out, size_t size);
+// Local minute of the day of a UTC time.
+int minuteOfDay(uint32_t utc, int16_t tzOffsetMin);
+// Translated style label; "-" for None.
+const char* styleName(stats::ReadingStyle style);
 
 }  // namespace statstext

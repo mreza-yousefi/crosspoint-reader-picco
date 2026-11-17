@@ -436,11 +436,12 @@ RawEvent rawEvent(uint32_t tMs, uint8_t kind) {
   return r;
 }
 
-std::vector<SessionRecord> replayAll(std::vector<uint8_t> bytes, size_t* completeEnd = nullptr, uint32_t skip = 0) {
+std::vector<SessionRecord> replayAll(std::vector<uint8_t> bytes, size_t* completeEnd = nullptr, uint32_t skip = 0,
+                                     bool idleTrim = true) {
   Buffer buffer{std::move(bytes), sizeof(FileHeader)};
   LogScanner scanner(&readBuffer, &buffer, sizeof(FileHeader));
   LogReplay replay;
-  replay.begin(7, 40.0f, 1000, skip);
+  replay.begin(7, 40.0f, 1000, skip, idleTrim);
   std::vector<SessionRecord> out;
   uint8_t buf[RAW_MAX_KNOWN_SIZE];
   size_t size = 0;
@@ -631,4 +632,360 @@ TEST(ReadingStatsRawLog, TurnBackAfterEndScreenKeepsFinished) {
   BookTotals totals{};
   applySession(totals, false, sessions[0], true);
   EXPECT_NE(totals.finishedUtc, 0u);
+}
+
+// --- Dictionary time ----------------------------------------------------------------------
+
+TEST(ReadingStatsDictionary, CountsInFullOutsideThePageDwell) {
+  ActiveClock clock;
+  clock.begin(40.0f, 1000);  // page cap 140 s
+  clock.pageShown(0, pos(1, 0, 0));
+  clock.dictionaryOpen(20000);
+  EXPECT_TRUE(clock.inDictionary());
+  // Ten minutes in the definition: more than the page cap, all of it counts.
+  EXPECT_EQ(clock.dictionaryMsAt(620000), 600000u);
+  EXPECT_EQ(clock.activeMsAt(620000), 620000u);
+  clock.dictionaryClose(620000);
+  const auto turn = clock.pageShown(650000, pos(1, 1, 1000));
+  EXPECT_EQ(turn.countedMs, 50000u);  // the page dwell without the lookup
+  EXPECT_TRUE(turn.learned);
+  EXPECT_FLOAT_EQ(turn.rate, 50.0f);  // the lookup taught nothing
+  EXPECT_EQ(clock.activeMsAt(650000), 650000u);
+  EXPECT_EQ(clock.dictionaryMsAt(650000), 600000u);
+}
+
+TEST(ReadingStatsDictionary, OpeningEndsPauseAndPageChangeCloses) {
+  ActiveClock clock;
+  clock.begin(40.0f, 1000);
+  clock.pageShown(0, pos(1, 0, 0));
+  clock.pause(10000);           // reader menu
+  clock.dictionaryOpen(70000);  // Look Up from the menu
+  EXPECT_FALSE(clock.isPaused());
+  clock.pageShown(100000, pos(1, 1, 1000));  // closes the sheet
+  EXPECT_FALSE(clock.inDictionary());
+  EXPECT_EQ(clock.dictionaryMsAt(100000), 30000u);
+  EXPECT_EQ(clock.activeMsAt(100000), 40000u);  // 10 s on the page, 30 s in the dictionary
+}
+
+TEST(ReadingStatsDictionary, OneSheetCountsAtMostTenMinutes) {
+  ActiveClock clock;
+  clock.begin(40.0f, 1000);
+  clock.pageShown(0, pos(1, 0, 0));
+  clock.dictionaryOpen(10000);
+  // Left open for an hour (sleep set to Never).
+  EXPECT_EQ(clock.dictionaryMsAt(10000 + 3600000), DICT_MAX_SEC * 1000);
+  clock.dictionaryClose(10000 + 3600000);
+  EXPECT_EQ(clock.dictionaryMsAt(10000 + 3600000), DICT_MAX_SEC * 1000);
+  const auto turn = clock.pageShown(10000 + 3600000 + 20000, pos(1, 1, 1000));
+  EXPECT_EQ(turn.countedMs, 30000u);  // the page dwell around the sheet
+}
+
+TEST(ReadingStatsDictionary, ReplayedFromEvents) {
+  auto log = emptyLog();
+  put(log, rawStart(1, 1767225600, 1, 0));
+  put(log, rawEvent(20000, EVENT_DICT_OPEN));
+  put(log, rawEvent(320000, EVENT_DICT_CLOSE));
+  put(log, rawTurn(350000, TURN_NEXT, 1, 1000));
+  const auto sessions = replayAll(log);
+  ASSERT_EQ(sessions.size(), 1u);
+  EXPECT_EQ(sessions[0].dictSec, 300u);
+  EXPECT_EQ(sessions[0].activeSec, 350u);
+  EXPECT_EQ(sessions[0].learnedMs, 50000u);
+}
+
+TEST(ReadingStatsDictionary, EndRecordCarriesDictionaryTime) {
+  auto log = emptyLog();
+  put(log, rawStart(1, 1767225600, 1, 0));
+  RawEnd end = rawEnd(400000, 350, 1767226000);
+  end.dictSec = 300;
+  put(log, end);
+  const auto sessions = replayAll(log);
+  ASSERT_EQ(sessions.size(), 1u);
+  EXPECT_EQ(sessions[0].dictSec, 300u);
+}
+
+// --- Automatic-sleep idle trim ------------------------------------------------------------
+
+TEST(ReadingStatsIdleTrim, LastDwellCountsOneTypicalPage) {
+  ActiveClock clock;
+  clock.begin(40.0f, 1000);  // typical page: 40 s, cap 140 s
+  clock.pageShown(0, pos(1, 0, 0));
+  clock.pageShown(30000, pos(1, 1, 1000));
+  // Put down for ten minutes until automatic sleep.
+  EXPECT_EQ(clock.activeMsAt(630000), 30000u + 140000u);
+  EXPECT_EQ(clock.activeMsAt(630000, true), 30000u + 40000u);
+  EXPECT_EQ(clock.typicalDwellMs(), 40000u);
+  // A short last dwell is not raised.
+  EXPECT_EQ(clock.activeMsAt(50000, true), 50000u);
+}
+
+TEST(ReadingStatsIdleTrim, NotWhilePaused) {
+  ActiveClock clock;
+  clock.begin(40.0f, 1000);
+  clock.pageShown(0, pos(1, 0, 0));
+  clock.pause(100000);  // read 100 s, then the menu; slept from the menu
+  EXPECT_EQ(clock.activeMsAt(900000, true), 100000u);
+  EXPECT_EQ(clock.activeMsAt(900000, true), clock.activeMsAt(900000));
+}
+
+TEST(ReadingStatsIdleTrim, FallbackWithoutRateAndDictionaryStretch) {
+  ActiveClock clock;
+  clock.begin(0.0f, 0);
+  EXPECT_EQ(clock.typicalDwellMs(), IDLE_TRIM_DEFAULT_SEC * 1000);
+  clock.pageShown(0, pos(1, 0, 0));
+  clock.dictionaryOpen(20000);
+  // Slept with the definition up: the dictionary stretch is the one trimmed.
+  EXPECT_EQ(clock.dictionaryMsAt(920000, true), 60000u);
+  EXPECT_EQ(clock.activeMsAt(920000, true), 20000u + 60000u);
+}
+
+TEST(ReadingStatsIdleTrim, RebuildTrimsOldAutoSleepSessionsOnce) {
+  auto log = emptyLog();
+  put(log, rawStart(1, 1767225600, 1, 0));
+  put(log, rawTurn(30000, TURN_NEXT, 1, 1000));
+  RawEnd end = rawEnd(630000, 170, 1767226230);  // written untrimmed: 30 s + 140 s cap
+  end.reason = END_AUTO_SLEEP;
+  put(log, end);
+  // The same session written by a recorder that already trimmed it.
+  put(log, rawStart(2, 1767230000, 1, 1000));
+  put(log, rawTurn(30000, TURN_NEXT, 1, 2000));
+  RawEnd trimmed = rawEnd(630000, 70, 1767230630);
+  trimmed.reason = END_AUTO_SLEEP;
+  trimmed.flags = SESSION_WALL_KNOWN | SESSION_IDLE_TRIMMED;
+  put(log, trimmed);
+  // Manual sleep keeps the 3.5x cap.
+  put(log, rawStart(3, 1767240000, 1, 2000));
+  put(log, rawTurn(30000, TURN_NEXT, 1, 3000));
+  RawEnd manual = rawEnd(630000, 170, 1767240630);
+  manual.reason = END_SLEEP;
+  put(log, manual);
+
+  // A book without a learned rate keeps the written time (the trim would be a guess).
+  const auto untrimmed = replayAll(log, nullptr, 0, false);
+  ASSERT_EQ(untrimmed.size(), 3u);
+  EXPECT_EQ(untrimmed[0].activeSec, 170u);
+  EXPECT_FALSE(untrimmed[0].flags & SESSION_IDLE_TRIMMED);
+
+  const auto sessions = replayAll(log);
+  ASSERT_EQ(sessions.size(), 3u);
+  EXPECT_EQ(sessions[0].activeSec, 70u);
+  EXPECT_TRUE(sessions[0].flags & SESSION_IDLE_TRIMMED);
+  EXPECT_EQ(sessions[1].activeSec, 70u);
+  EXPECT_EQ(sessions[2].activeSec, 170u);
+  EXPECT_FALSE(sessions[2].flags & SESSION_IDLE_TRIMMED);
+}
+
+// --- Reading style ------------------------------------------------------------------------
+
+namespace {
+constexpr int32_t JAN1 = 20454;  // 2026-01-01
+
+// Counted sessions of activeMin minutes at 20:00 UTC on the given days after 2026-01-01.
+StyleAcc styleOf(const std::vector<int>& dayOffsets, uint32_t activeMin) {
+  StyleAcc acc;
+  for (const int d : dayOffsets) {
+    addStyleSession(
+        acc, session(1767225600 + static_cast<uint32_t>(d) * 86400 + 20 * 3600, activeMin * 60 + 60, activeMin * 60));
+  }
+  return acc;
+}
+}  // namespace
+
+TEST(ReadingStatsStyle, Rules) {
+  ASSERT_EQ(day(2026, 1, 1), JAN1);
+  // Too little to say.
+  EXPECT_EQ(classifyStyle(styleOf({0}, 90), false, true, JAN1), ReadingStyle::None);
+  // Two long evenings in a row.
+  EXPECT_EQ(classifyStyle(styleOf({0, 0, 1}, 50), false, true, JAN1 + 2), ReadingStyle::Binge);
+  // Twenty minutes most days.
+  EXPECT_EQ(classifyStyle(styleOf({0, 1, 2, 4, 5, 6}, 20), false, true, JAN1 + 6), ReadingStyle::Steady);
+  // Five minutes at a time.
+  EXPECT_EQ(classifyStyle(styleOf({0, 0, 0, 1, 1, 3}, 5), false, true, JAN1 + 3), ReadingStyle::Snacking);
+  // Half an hour now and then.
+  EXPECT_EQ(classifyStyle(styleOf({0, 7, 15, 24}, 30), false, true, JAN1 + 25), ReadingStyle::Intermittent);
+  // Not opened for over a month, not finished.
+  const StyleAcc old = styleOf({0, 1, 2}, 30);
+  EXPECT_EQ(classifyStyle(old, false, true, JAN1 + 2 + STALLED_DAYS + 1), ReadingStyle::Stalled);
+  EXPECT_EQ(classifyStyle(old, false, true, JAN1 + 2 + STALLED_DAYS), ReadingStyle::Steady);
+  EXPECT_EQ(classifyStyle(old, true, true, JAN1 + 200), ReadingStyle::Steady);    // finished
+  EXPECT_EQ(classifyStyle(old, false, false, JAN1 + 200), ReadingStyle::Steady);  // no clock
+}
+
+TEST(ReadingStatsStyle, UndatedSessionsDoNotCount) {
+  StyleAcc acc;
+  addStyleSession(acc, session(0, 600, 500, 0));
+  EXPECT_EQ(acc.sessions, 0);
+  addStyleSession(acc, session(1767225600, 600, 500));
+  addStyleSession(acc, session(1767225600 + 3600, 600, 500));
+  EXPECT_EQ(acc.sessions, 2);
+  EXPECT_EQ(acc.days, 1);
+  EXPECT_EQ(acc.activeSec, 1000u);
+}
+
+// --- Weekday x hour grid ------------------------------------------------------------------
+
+TEST(ReadingStatsGrid, SpreadsOverHoursInLocalTime) {
+  uint32_t grid[GRID_CELLS] = {};
+  // Thu 2026-01-01 20:30 UTC, UTC+1: 21:30-22:30 local, 40 min active.
+  SessionRecord s = session(1767225600 + 20 * 3600 + 1800, 3600, 2400);
+  s.tzOffsetMin = 60;
+  addToHourGrid(grid, s);
+  const int thursday = weekday(day(2026, 1, 1));
+  EXPECT_EQ(thursday, 3);
+  EXPECT_EQ(grid[thursday * 24 + 21], 1200u);
+  EXPECT_EQ(grid[thursday * 24 + 22], 1200u);
+  uint32_t sum = 0;
+  for (const uint32_t v : grid) sum += v;
+  EXPECT_EQ(sum, 2400u);
+}
+
+TEST(ReadingStatsGrid, CrossesMidnightIntoNextWeekday) {
+  uint32_t grid[GRID_CELLS] = {};
+  // Sun 2026-01-04 23:45 UTC for 30 min: 15 min Sunday 23h, 15 min Monday 0h.
+  addToHourGrid(grid, session(static_cast<uint32_t>(day(2026, 1, 4)) * 86400 + 23 * 3600 + 2700, 1800, 1800));
+  EXPECT_EQ(grid[6 * 24 + 23], 900u);
+  EXPECT_EQ(grid[0 * 24 + 0], 900u);
+  // Undated sessions are left out.
+  uint32_t empty[GRID_CELLS] = {};
+  addToHourGrid(empty, session(0, 600, 600, 0));
+  for (const uint32_t v : empty) EXPECT_EQ(v, 0u);
+}
+
+TEST(ReadingStatsGrid, Shades) {
+  EXPECT_EQ(gridShade(0, 100), 0);
+  EXPECT_EQ(gridShade(1, 100), 1);
+  EXPECT_EQ(gridShade(33, 100), 1);
+  EXPECT_EQ(gridShade(34, 100), 2);
+  EXPECT_EQ(gridShade(67, 100), 3);
+  EXPECT_EQ(gridShade(100, 100), 3);
+  EXPECT_EQ(gridShade(5, 0), 0);
+}
+
+TEST(ReadingStatsCalendar, BucketDays) {
+  int32_t first = 0;
+  int32_t last = 0;
+  bucketDays(Range::Week, weekIndex(day(2026, 11, 11)), first, last);
+  EXPECT_EQ(first, day(2026, 11, 9));
+  EXPECT_EQ(last, day(2026, 11, 15));
+  bucketDays(Range::Month, monthIndex(day(2026, 2, 10)), first, last);
+  EXPECT_EQ(first, day(2026, 2, 1));
+  EXPECT_EQ(last, day(2026, 2, 28));
+  bucketDays(Range::Month, monthIndex(day(2026, 12, 10)), first, last);
+  EXPECT_EQ(last, day(2026, 12, 31));
+  bucketDays(Range::Year, 2028, first, last);
+  EXPECT_EQ(last - first + 1, 366);
+}
+
+// --- Per book -----------------------------------------------------------------------------
+
+TEST(ReadingStatsBook, AggregatesOneBook) {
+  BookAggregate agg;
+  std::vector<ProgressPoint> points;
+  SessionRecord a = session(1767225600, 1800, 1500);
+  a.startPercentBp = 1000;
+  a.endPercentBp = 1500;
+  a.lookups = 2;
+  a.dictSec = 90;
+  a.endPaperPage = 40;
+  SessionRecord b = session(1767225600 + 4000, 1200, 1000);
+  b.startPercentBp = 1500;
+  b.endPercentBp = 1800;
+  b.lookups = 1;
+  SessionRecord shortOpen = session(1767225600 + 90000, 30, 20, SESSION_WALL_KNOWN | SESSION_SHORT);
+  shortOpen.endPercentBp = 1800;
+  SessionRecord c = session(1767225600 + 2 * 86400, 1800, 1500);
+  c.startPercentBp = 1800;
+  c.endPercentBp = 2500;
+  c.endPaperPage = 60;
+  EXPECT_TRUE(addBookSession(agg, a, true, &points));
+  EXPECT_TRUE(addBookSession(agg, b, true, &points));
+  EXPECT_FALSE(addBookSession(agg, shortOpen, true, &points));
+  EXPECT_TRUE(addBookSession(agg, c, true, &points));
+  EXPECT_EQ(agg.totals.sessions, 3u);
+  EXPECT_EQ(agg.totals.sittings, 3u);
+  EXPECT_EQ(agg.totals.totalActiveSec, 4000u);
+  EXPECT_EQ(agg.lookups, 3u);
+  EXPECT_EQ(agg.dictSec, 90u);
+  EXPECT_EQ(agg.firstPercentBp, 1000);
+  EXPECT_EQ(agg.lastPaperPage, 60);
+  EXPECT_EQ(agg.style.days, 2);
+  ASSERT_EQ(points.size(), 2u);
+  EXPECT_EQ(points[0].day, day(2026, 1, 1));
+  EXPECT_EQ(points[0].percentBp, 1800);  // the day's last session
+  EXPECT_EQ(points[1].percentBp, 2500);
+}
+
+TEST(ReadingStatsBook, SpeedAndTimeToFinish) {
+  EXPECT_EQ(pagesPerHour(90000, 60 * 60 * 1000), 50u);  // 90,000 chars in an hour
+  EXPECT_EQ(pagesPerHour(90000, 4 * 60 * 1000), 0u);    // too little measured
+  BookAggregate agg;
+  agg.totals.charsRead = 90000;
+  agg.totals.learnedMs = 60 * 60 * 1000;
+  agg.lastPaperPage = 150;
+  agg.paperPagesTotal = 200;
+  // 50 pages left at 50 pages an hour.
+  EXPECT_EQ(secondsToFinish(agg), 3600u);
+  // Without the book's length: from the time per percent so far.
+  agg.paperPagesTotal = 0;
+  agg.hasFirst = true;
+  agg.firstPercentBp = 1000;
+  agg.totals.lastPercentBp = 3000;
+  agg.totals.totalActiveSec = 2 * 3600;
+  EXPECT_EQ(secondsToFinish(agg), 7u * 3600u);
+  agg.totals.finishedUtc = 1;
+  EXPECT_EQ(secondsToFinish(agg), 0u);
+}
+
+TEST(ReadingStatsBook, PaperPagesTotalFromSessions) {
+  BookAggregate agg;
+  SessionRecord s = session(1767225600, 1800, 1500);
+  s.paperPagesTotal = 300;
+  addBookSession(agg, s, true, nullptr);
+  SessionRecord later = session(1767225600 + 86400, 1800, 1500);  // length not known this time
+  addBookSession(agg, later, true, nullptr);
+  EXPECT_EQ(agg.paperPagesTotal, 300);
+}
+
+TEST(ReadingStatsBook, DaysToFinishInLocalDays) {
+  BookAggregate agg;
+  EXPECT_EQ(daysToFinish(agg), 0);
+  // Mon 2026-01-05 23:30 local (UTC+1): 22:30 UTC.
+  SessionRecord first = session(static_cast<uint32_t>(day(2026, 1, 5)) * 86400 + 22 * 3600 + 1800, 1200, 1100);
+  first.tzOffsetMin = 60;
+  addBookSession(agg, first, true, nullptr);
+  // Finished the next evening: two local days, though less than 24 h apart.
+  SessionRecord last = session(static_cast<uint32_t>(day(2026, 1, 6)) * 86400 + 18 * 3600, 1200, 1100);
+  last.tzOffsetMin = 60;
+  last.flags |= SESSION_FINISHED;
+  addBookSession(agg, last, true, nullptr);
+  EXPECT_EQ(daysToFinish(agg), 2);
+  // Finished at an unknown time.
+  BookAggregate undated;
+  addBookSession(undated, session(0, 600, 500, SESSION_FINISHED), true, nullptr);
+  EXPECT_EQ(daysToFinish(undated), 0);
+}
+
+TEST(ReadingStatsBook, ProgressPointsStayBounded) {
+  BookAggregate agg;
+  std::vector<ProgressPoint> points;
+  for (int d = 0; d < 400; ++d) {
+    SessionRecord s = session(1767225600 + static_cast<uint32_t>(d) * 86400, 1200, 1100);
+    s.endPercentBp = static_cast<uint16_t>(d * 20);
+    addBookSession(agg, s, true, &points);
+    ASSERT_LE(points.size(), MAX_PROGRESS_POINTS + 1);
+  }
+  EXPECT_EQ(points.front().day, day(2026, 1, 1));  // the first day stays
+  EXPECT_EQ(points.back().percentBp, 399 * 20);    // and the last
+  for (size_t i = 1; i < points.size(); ++i) EXPECT_LT(points[i - 1].day, points[i].day);
+}
+
+TEST(ReadingStatsBook, ProgressColumnsCarryForward) {
+  const std::vector<ProgressPoint> points = {{100, 500}, {103, 2000}, {109, 4000}};
+  uint16_t columns[5] = {};
+  progressColumns(points.data(), points.size(), 100, 109, 5, columns);  // two days per column
+  EXPECT_EQ(columns[0], 500);
+  EXPECT_EQ(columns[1], 2000);
+  EXPECT_EQ(columns[2], 2000);
+  EXPECT_EQ(columns[3], 2000);
+  EXPECT_EQ(columns[4], 4000);
 }

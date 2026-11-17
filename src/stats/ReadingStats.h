@@ -38,6 +38,8 @@ class ReadingStats {
   void noteEvent(stats::EventKind kind);
   // Loop task: a menu or the stats screen is over the page; that time is not reading.
   void setPaused(bool paused);
+  // Loop task: a dictionary lookup's definition sheet is up (reading time, kept apart).
+  void setDictionaryOpen(bool open);
   // Loop task, idle frames: writes buffered records when due.
   void tick();
   void endSession(stats::EndReason reason);
@@ -48,6 +50,9 @@ class ReadingStats {
   // Closes a session left by a reset, then rebuilds stale or missing summaries. Call before
   // reading them.
   void prepareSummaries();
+  // prepareSummaries() will rebuild sessions.bin from the logs (after an update of its format):
+  // a few seconds, worth a popup.
+  bool needsLogRebuild();
   // Rebuilds days.bin and booktotals.bin from sessions.bin.
   bool rebuildSummaries();
   // Rebuilds sessions.bin from the raw book logs, then the summaries.
@@ -56,9 +61,16 @@ class ReadingStats {
   Hidden hiddenState(const std::string& docId);
   // Hides or shows a book in the calendar, then rebuilds the summaries.
   bool setHidden(const std::string& docId, bool hidden);
+  bool setBookHidden(int index, bool hidden);
   // Hidden flag per book index; empty without a registry.
   bool loadHiddenFlags(std::vector<uint8_t>& out);
   bool bookTitle(int index, char* out, size_t size);
+  // Titles of several books with one registry read; empty strings for unknown indices.
+  bool bookTitles(const std::vector<uint16_t>& indices, std::vector<std::string>& out);
+  // Registry index of a book, -1 when the stats do not know it.
+  int bookIndexFor(const std::string& docId);
+  // Book of the running session, -1 when none.
+  int liveBookIndex() const;
 
  private:
   ReadingStats();
@@ -117,7 +129,7 @@ class ReadingStats {
   void flush(Session& session, uint32_t nowMs);
   void finalize(const char* docId, uint16_t bookIndex, const stats::SessionRecord& record, const Session* learned);
   void recoverCrashedSession();
-  enum class AppendResult : uint8_t { Ok, BadHeader, WriteFailed };
+  enum class AppendResult : uint8_t { Ok, NotUsable, WriteFailed };
   AppendResult appendSession(const stats::SessionRecord& record);
   bool updateTotals(uint16_t bookIndex, bool excluded, const stats::SessionRecord& record, stats::ApplyResult& result);
   bool updateDays(const stats::DayRecord& add, uint32_t unknownTimeAdd);

@@ -127,27 +127,33 @@ RawEnd makeEnd(const SessionRecord& r, const EndReason reason, const uint32_t du
   end.endPercentBp = r.endPercentBp;
   end.endSpine = r.endSpine;
   end.tzOffsetMin = endUtc ? localTzOffsetMin(endUtc) : 0;
+  end.dictSec = r.dictSec;
   return end;
 }
 
-// Replays one book's raw log into the session index; returns the sessions written. Its own
-// frame keeps the record buffers off the caller's stack.
-uint32_t replayLog(const char* docId, LogReplay& replay, HalFile& out) {
+// Replays one book's raw log into the session index, counting the sessions written; false
+// when a write failed. A book without a readable log adds nothing. Its own frame keeps the
+// record buffers off the caller's stack.
+bool replayLog(const char* docId, LogReplay& replay, HalFile& out, uint32_t& written) {
   char path[64];
   logPathFor(docId, path, sizeof(path));
   HalFile log;
   FileHeader logHeader{};
-  if (!openValid(path, MAGIC_LOG, RAW_LOG_VERSION, sizeof(FileHeader), 0, log, logHeader)) return 0;
-  uint32_t written = 0;
+  if (!openValid(path, MAGIC_LOG, RAW_LOG_VERSION, sizeof(FileHeader), 0, log, logHeader)) return true;
   LogScanner scanner(&readHalFile, &log, sizeof(FileHeader));
   uint8_t buf[RAW_MAX_KNOWN_SIZE];
   size_t size = 0;
   SessionRecord rec{};
   while (scanner.next(buf, size)) {
-    if (replay.feed(buf, size, rec) && writeExact(out, &rec, sizeof(rec))) ++written;
+    if (!replay.feed(buf, size, rec)) continue;
+    if (!writeExact(out, &rec, sizeof(rec))) return false;
+    ++written;
   }
-  if (replay.finish(rec) && writeExact(out, &rec, sizeof(rec))) ++written;
-  return written;
+  if (replay.finish(rec)) {
+    if (!writeExact(out, &rec, sizeof(rec))) return false;
+    ++written;
+  }
+  return true;
 }
 
 // Cuts a torn tail off a book's log, so records appended later frame correctly. Sets closed
@@ -164,7 +170,7 @@ bool repairLog(const char* docId, const uint16_t bookIndex, const uint32_t seq, 
     if (log && log.size() < sizeof(FileHeader)) log.truncate(0);
     return false;
   }
-  replay->begin(bookIndex, 0.0f, 0, 0);
+  replay->begin(bookIndex, 0.0f, 0, 0, false);
   LogScanner scanner(&readHalFile, &log, sizeof(FileHeader));
   uint8_t buf[RAW_MAX_KNOWN_SIZE];
   size_t size = 0;
@@ -348,9 +354,11 @@ ReadingStats::Hidden ReadingStats::hiddenState(const std::string& docId) {
 }
 
 bool ReadingStats::setHidden(const std::string& docId, const bool hidden) {
-  if (docId.size() != DOC_ID_LEN) return false;
-  const int index = findBookIndex(docId.c_str());
-  if (index < 0) return false;
+  return docId.size() == DOC_ID_LEN && setBookHidden(findBookIndex(docId.c_str()), hidden);
+}
+
+bool ReadingStats::setBookHidden(const int index, const bool hidden) {
+  if (index < 0 || !loadIdCache() || index >= static_cast<int>(hiddenByIndex.size())) return false;
   {
     HalFile registry = Storage.open(REGISTRY_PATH, O_RDWR);
     uint32_t flags = 0;
@@ -374,6 +382,34 @@ bool ReadingStats::loadHiddenFlags(std::vector<uint8_t>& out) {
   }
   out = hiddenByIndex;
   return true;
+}
+
+int ReadingStats::bookIndexFor(const std::string& docId) {
+  return docId.size() == DOC_ID_LEN ? findBookIndex(docId.c_str()) : -1;
+}
+
+int ReadingStats::liveBookIndex() const {
+  Lock lock(*this);
+  return session ? session->bookIndex : -1;
+}
+
+bool ReadingStats::bookTitles(const std::vector<uint16_t>& indices, std::vector<std::string>& out) {
+  out.clear();
+  out.reserve(indices.size());
+  HalFile file;
+  const bool open = Storage.openFileForRead("STATS", REGISTRY_PATH, file);
+  const int count = open ? registryCount(file) : 0;
+  char title[sizeof(BookRecord::title)];
+  for (const uint16_t index : indices) {
+    if (index < count && file.seek(bookOffset(index) + offsetof(BookRecord, title)) &&
+        readExact(file, title, sizeof(title))) {
+      title[sizeof(title) - 1] = '\0';
+      out.emplace_back(title);
+    } else {
+      out.emplace_back();
+    }
+  }
+  return open;
 }
 
 bool ReadingStats::bookTitle(const int index, char* out, const size_t size) {
@@ -520,6 +556,7 @@ void ReadingStats::onPageShown(const PageInfo& info) {
   r.endPercentBp = info.percentBp;
   if (crossesFinish(r.startPercentBp, info.percentBp)) r.flags |= SESSION_FINISHED;
   if (info.paperPage > 0) r.endPaperPage = info.paperPage;
+  if (info.paperPagesTotal > 0) r.paperPagesTotal = info.paperPagesTotal;
 }
 
 void ReadingStats::noteEndOfBook() {
@@ -548,6 +585,21 @@ void ReadingStats::noteEvent(const EventKind kind) {
       return;
   }
   appendEvent(s, kind, millis());
+}
+
+void ReadingStats::setDictionaryOpen(const bool open) {
+  Lock lock(*this);
+  if (!session || !session->startWritten) return;
+  Session& s = *session;
+  if (s.clock.inDictionary() == open) return;
+  const uint32_t now = millis();
+  if (open) {
+    s.clock.dictionaryOpen(now);
+  } else {
+    s.clock.dictionaryClose(now);
+  }
+  appendEvent(s, open ? EVENT_DICT_OPEN : EVENT_DICT_CLOSE, now);
+  pausedFlag = s.clock.isPaused();
 }
 
 void ReadingStats::setPaused(const bool paused) {
@@ -590,6 +642,7 @@ void ReadingStats::flush(Session& s, const uint32_t nowMs) {
     }
     snapshot = s.record;
     snapshot.activeSec = s.clock.activeMsAt(nowMs) / 1000;
+    snapshot.dictSec = s.clock.dictionaryMsAt(nowMs) / 1000;
     snapshot.durationSec = durationSec;
   }
   s.lastFlushMs = nowMs;
@@ -628,7 +681,11 @@ void ReadingStats::endSession(const EndReason reason) {
     Session& x = *session;
     SessionRecord& r = x.record;
     durationMs = now - x.startMs;
-    r.activeSec = x.clock.activeMsAt(now) / 1000;
+    // Automatic sleep came after the sleep timeout without input: that idle time is not reading.
+    const bool trimIdle = reason == END_AUTO_SLEEP;
+    r.activeSec = x.clock.activeMsAt(now, trimIdle) / 1000;
+    r.dictSec = x.clock.dictionaryMsAt(now, trimIdle) / 1000;
+    if (trimIdle) r.flags |= SESSION_IDLE_TRIMMED;
     r.durationSec = durationMs / 1000;
     r.endReason = reason;
     if (isShortOpen(r.activeSec, r.turnsFwd + r.turnsBack + r.jumps)) r.flags |= SESSION_SHORT;
@@ -663,6 +720,7 @@ bool ReadingStats::liveSession(SessionRecord& out, bool& excluded) const {
   const uint32_t now = millis();
   out = session->record;
   out.activeSec = session->clock.activeMsAt(now) / 1000;
+  out.dictSec = session->clock.dictionaryMsAt(now) / 1000;
   out.durationSec = (now - session->startMs) / 1000;
   if (isShortOpen(out.activeSec, out.turnsFwd + out.turnsBack + out.jumps)) out.flags |= SESSION_SHORT;
   excluded = session->bookExcluded;
@@ -671,18 +729,16 @@ bool ReadingStats::liveSession(SessionRecord& out, bool& excluded) const {
 
 // --- Finalizing and summaries -------------------------------------------------------------
 
+// Only rebuildFromLogs() creates sessions.bin: a file started here would hold this session
+// alone and pass as complete, hiding the history.
 ReadingStats::AppendResult ReadingStats::appendSession(const SessionRecord& record) {
-  HalFile file = Storage.open(SESSIONS_PATH, O_RDWR | O_CREAT);
+  if (!Storage.exists(SESSIONS_PATH)) return AppendResult::NotUsable;
+  HalFile file = Storage.open(SESSIONS_PATH, O_RDWR);
   if (!file) return AppendResult::WriteFailed;
-  if (file.size() == 0) {
-    const FileHeader header = makeHeader(MAGIC_SESSIONS, SESSIONS_VERSION, sizeof(FileHeader), sizeof(SessionRecord));
-    if (!writeExact(file, &header, sizeof(header))) return AppendResult::WriteFailed;
-  } else {
-    FileHeader header{};
-    if (!readExact(file, &header, sizeof(header)) ||
-        !headerMatches(header, MAGIC_SESSIONS, SESSIONS_VERSION, sizeof(FileHeader), sizeof(SessionRecord))) {
-      return AppendResult::BadHeader;
-    }
+  FileHeader header{};
+  if (!readExact(file, &header, sizeof(header)) ||
+      !headerMatches(header, MAGIC_SESSIONS, SESSIONS_VERSION, sizeof(FileHeader), sizeof(SessionRecord))) {
+    return AppendResult::NotUsable;
   }
   // A torn earlier append leaves a partial record: write on the record grid.
   const size_t records = (file.size() - sizeof(FileHeader)) / sizeof(SessionRecord);
@@ -702,10 +758,10 @@ void ReadingStats::finalize(const char* docId, const uint16_t bookIndex, const S
                             const Session* learned) {
   const AppendResult appended = appendSession(record);
   const bool indexed = appended == AppendResult::Ok;
-  if (appended == AppendResult::BadHeader) {
-    // Not a usable index: the next prepareSummaries() rebuilds it from the logs, which hold this session.
-    LOG_ERR("STATS", "sessions.bin not recognised; rebuilding it from the logs later");
-    Storage.remove(SESSIONS_PATH);
+  if (appended == AppendResult::NotUsable) {
+    // Missing or of another version: the next prepareSummaries() rebuilds it from the logs,
+    // which hold this session, and replaces the old file only when that worked.
+    LOG_INF("STATS", "sessions.bin missing or not current; rebuilt from the logs later");
     invalidateSummaries();
   } else if (appended == AppendResult::WriteFailed) {
     // current.bin stays, so recovery retries the append; the summaries are rebuilt after it.
@@ -878,6 +934,7 @@ bool ReadingStats::rebuildSummaries() {
 }
 
 bool ReadingStats::rebuildFromLogs() {
+  const unsigned long startMs = millis();
   if (!loadIdCache()) return false;
   HalFile registry;
   RegistryHeader header{};
@@ -905,17 +962,26 @@ bool ReadingStats::rebuildFromLogs() {
   }
 
   uint32_t written = 0;
-  for (int i = 0; i < count; ++i) {
-    if (!registry.seek(bookOffset(i)) || !readExact(registry, book.get(), sizeof(BookRecord))) break;
+  bool ok = true;
+  for (int i = 0; ok && i < count; ++i) {
+    ok = registry.seek(bookOffset(i)) && readExact(registry, book.get(), sizeof(BookRecord));
+    if (!ok) break;
+    // The idle trim of old sessions uses the book's current model: only once it has one.
     replay->begin(static_cast<uint16_t>(i),
                   chooseRate(book->rateHist, book->rateSamples, header.globalHist, header.globalSamples),
-                  book->typicalPageChars, liveSeq);
-    written += replayLog(book->docId, *replay, out);
+                  book->typicalPageChars, liveSeq, book->rateSamples >= MIN_MODEL_SAMPLES);
+    ok = replayLog(book->docId, *replay, out, written);
   }
   out.close();
   registry.close();
-  if (!Storage.replaceFile(tmp.c_str(), SESSIONS_PATH)) return false;
-  LOG_INF("STATS", "Session index rebuilt from logs: %u sessions", static_cast<unsigned>(written));
+  // The old index stays until a complete new one replaces it.
+  if (!ok || !Storage.replaceFile(tmp.c_str(), SESSIONS_PATH)) {
+    LOG_ERR("STATS", "Session index rebuild failed; the old index stays");
+    Storage.remove(tmp.c_str());
+    return false;
+  }
+  LOG_INF("STATS", "Session index rebuilt from logs: %u sessions, %lu ms", static_cast<unsigned>(written),
+          millis() - startMs);
   return rebuildSummaries();
 }
 
@@ -923,9 +989,15 @@ void ReadingStats::recoverCrashedSession() {
   if (session || !Storage.exists(CURRENT_PATH)) return;
   CurrentRecord current{};
   {
+    // Version 1 is the same record without the appended dictSec (read as 0).
     HalFile file;
-    if (!Storage.openFileForRead("STATS", CURRENT_PATH, file) || !readExact(file, &current, sizeof(current)) ||
-        !headerMatches(current.file, MAGIC_CURRENT, CURRENT_VERSION, sizeof(CurrentRecord), 0)) {
+    const bool read = Storage.openFileForRead("STATS", CURRENT_PATH, file) &&
+                      readExact(file, &current, sizeof(current.file)) &&
+                      (headerMatches(current.file, MAGIC_CURRENT, CURRENT_VERSION, sizeof(CurrentRecord), 0) ||
+                       headerMatches(current.file, MAGIC_CURRENT, 1, CURRENT_V1_SIZE, 0)) &&
+                      readExact(file, reinterpret_cast<uint8_t*>(&current) + sizeof(current.file),
+                                current.file.headerSize - sizeof(current.file));
+    if (!read) {
       file.close();
       Storage.remove(CURRENT_PATH);
       return;
@@ -975,12 +1047,13 @@ bool ReadingStats::summariesStale() {
          days.file.flags != summaryFlags();
 }
 
+bool ReadingStats::needsLogRebuild() { return Storage.exists(REGISTRY_PATH) && !sessionsUsable(); }
+
 void ReadingStats::prepareSummaries() {
   if (!Storage.exists(REGISTRY_PATH)) return;
   if (!loadIdCache()) return;
   recoverCrashedSession();
   if (!sessionsUsable()) {
-    if (Storage.exists(SESSIONS_PATH)) Storage.remove(SESSIONS_PATH);
     rebuildFromLogs();
   } else if (summariesStale()) {
     rebuildSummaries();

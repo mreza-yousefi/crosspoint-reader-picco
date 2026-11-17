@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderDocumentId.h>
 #include <LibraryBuilder.h>
 #include <LibraryText.h>
 #include <Logging.h>
@@ -17,6 +18,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "activities/stats/ReadingStatsBookActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
@@ -25,6 +27,7 @@
 #include "components/icons/listIcons.h"
 #include "components/icons/search32.h"
 #include "fontIds.h"
+#include "stats/ReadingStats.h"
 #include "util/BookCacheUtils.h"
 
 namespace fui = freeink::ui;
@@ -293,12 +296,21 @@ void LibraryListActivity::showRecentBookOptions(const int entry) {
     }
   }
 
-  const char* STORE_OPTIONS[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD)};
-  const char* INDEX_OPTIONS[] = {tr(STR_OPEN), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD)};
+  // Reading Stats comes last, for a book the reading stats know.
+  const int statsIndex = READING_STATS.bookIndexFor(KOReaderDocumentId::calculate(path));
+  const char* STORE_OPTIONS[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD),
+                                 tr(STR_READING_STATS)};
+  const char* INDEX_OPTIONS[] = {tr(STR_OPEN), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD), tr(STR_READING_STATS)};
+  const int baseCount = isStoreRow ? 4 : 3;
   app.clearTapFlash();
-  optionPopup.show(tr(STR_LIBRARY), title.c_str(), isStoreRow ? STORE_OPTIONS : INDEX_OPTIONS, isStoreRow ? 4 : 3, 0,
-                   [this, path, title, isStoreRow](const int choice) {
+  optionPopup.show(tr(STR_LIBRARY), title.c_str(), isStoreRow ? STORE_OPTIONS : INDEX_OPTIONS,
+                   statsIndex >= 0 ? baseCount + 1 : baseCount, 0,
+                   [this, path, title, isStoreRow, statsIndex, baseCount](const int choice) {
                      swallowHeldReleases();
+                     if (choice == baseCount) {
+                       ReadingStatsBookActivity::push(*this, renderer, mappedInput, statsIndex);
+                       return;
+                     }
                      switch (choice) {
                        case 0:
                          openBookByPath(path);

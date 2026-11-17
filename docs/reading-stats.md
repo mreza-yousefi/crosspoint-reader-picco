@@ -3,8 +3,10 @@
 The reader records when and how you read EPUB books (TXT and Markdown too, as they use the same
 reader; XTC books are not recorded) and shows it on the **Reading Stats** screen. This page is the
 contract for the data: file formats, the rules that turn page turns into "active reading time",
-and what each screen reads. Stage 1 (this version) has the recorder, the Overview and the time
-charts. Later stages add per-book views, reading patterns and a web page; they read the same files.
+and what each screen reads. Stage 1 has the recorder, the Overview and the time charts. Stage 2
+(this version) adds the book lists and book pages, reading styles, the weekday x hour grid,
+comparing two books, the week and month drill-down, dictionary time and the automatic-sleep idle
+trim. Later stages add records, a year in review and a web page; they read the same files.
 
 Code: `src/stats/` (recorder, rules, file formats, queries), `src/activities/stats/` (screens).
 Host tests: `test/reading_stats/`.
@@ -35,9 +37,10 @@ card. **Clear Reading Cache** does not delete it. To delete all statistics, dele
 - **Short open**: a session with less than `SHORT_OPEN_SEC` (60 s) active time or no page turn.
   With **Ignore Short Opens** on (default), short opens are kept in the files but left out of every
   total and chart.
-- **Hidden book** ("Hide from Stats" in Home's book menu): the book's sessions stay recorded and
-  its own totals are kept, but it is left out of the calendar (days, charts, streaks, Overview
-  totals). Show in Stats brings it back. Meant for test books.
+- **Hidden book** ("Hide from Stats" in Home's book menu or on the book's page): the book's
+  sessions stay recorded and its own totals are kept, but it is left out of the calendar (days,
+  charts, streaks, the grid, Overview totals) and the Books list. Show in Stats (or the switch on
+  its page, reached from Hidden Books) brings it back. Meant for test books.
 - **Paper page**: 1,800 characters of the book's text (see `PaperPages`). 0 means "not counted
   yet" (the book's text count is not finished, or the status bar position is off). Paper pages
   are extra information only; reading speed comes from `charsRead` (below).
@@ -72,6 +75,8 @@ cap = CAP_FACTOR x rate x pageChars / 1000, kept within [MIN_CAP_SEC, MAX_CAP_SE
 | `MIN_LEARN_DWELL_MS` / `MAX_LEARN_DWELL_MS` | 2 s / 30 min | dwells used for learning |
 | `MIN_LEARN_CHARS` | 200 | pages with less text are not learned from |
 | `DEFAULT_PAGE_CHARS` | 1000 | page size assumed before the book has a measured one |
+| `IDLE_TRIM_DEFAULT_SEC` | 60 s | last stretch after automatic sleep, before any rate is known |
+| `DICT_MAX_SEC` | 10 min | one dictionary sheet counts at most this long |
 
 - **rate** is the median of the book's learned speeds, in seconds per 1000 characters. Until the
   book has `MIN_MODEL_SAMPLES` samples, the median of all books is used; until that has enough,
@@ -87,16 +92,32 @@ cap = CAP_FACTOR x rate x pageChars / 1000, kept within [MIN_CAP_SEC, MAX_CAP_SE
 - **pageChars** is the page's text length when known, else the book's typical page length (a
   running average of measured pages, kept per book).
 - **Pauses**: while the reader menu (list or toolbar and its panels), a screen opened from the
-  menu, or the Reading Stats screen is over the book, the clock stops; the dwell goes on when the
+  menu, or a Reading Stats screen is over the book, the clock stops; the dwell goes on when the
   page is back. The light panel alone does not pause; opened with the toolbar (Up + Down under the
-  touch lock) it pauses like the toolbar. A dictionary lookup counts as reading. Pauses are in the
-  raw log (`E` records).
+  touch lock) it pauses like the toolbar. Pauses are in the raw log (`E` records).
+- **Dictionary time**: selecting a word counts as page time. While a lookup's definition sheet
+  is up (`DictionaryDefinitionActivity` with a lookup, and the screens it opens), the time counts
+  as reading, apart from the page dwell: no page cap, no speed sample, and the page's dwell goes
+  on when the sheet closes. One sheet counts at most `DICT_MAX_SEC` (a sheet left open with
+  automatic sleep set to Never). Opening the sheet ends a pause (Look Up from the menu); a page
+  change or a pause closes it. It is recorded as `E` kinds 7 and 8 and kept per session as
+  `dictSec` (part of `activeSec`).
 - **Lookups**: a lookup is counted (`E` kind 1) once its definition has been on screen for 1 s;
   a definition closed sooner, and a word not found, are not counted.
 - Re-drawing the same page (clock update, menu closed, toolbar) does not end the dwell. A change
   of font or orientation shows a new page at almost the same place: it is recorded as a jump.
-- The last dwell ends at the session end. After automatic sleep it includes the idle time before
-  sleep, which the cap removes.
+- The last dwell ends at the session end. **Idle trim**: when automatic sleep ends the session
+  (reason 3), the open stretch (the page on screen, or the dictionary sheet when it is up) counts
+  at most one typical page dwell of the book: the rate in use (the book's own, else all books',
+  as for the cap) x the book's typical page length (`ActiveClock::typicalDwellMs`), or
+  `IDLE_TRIM_DEFAULT_SEC` (1 min) without a rate. That stretch is mostly the sleep timeout
+  without input. A session that sleeps while paused (a menu over the page) is not trimmed: its
+  last dwell ended at the pause. Manual sleep keeps the normal cap. The recorder applies it when
+  it writes the session and sets flag 32 (`SESSION_IDLE_TRIMMED`) in `X` and `sessions.bin`. A
+  rebuild of `sessions.bin` applies it to older automatic-sleep sessions without the flag (their
+  `X` holds the untrimmed time; the replayed clock gives the part to take off), so it is applied
+  once. The rebuild uses the book's speed model of today, not of the session's day, so it is an
+  approximation; it is skipped for a book with fewer than `MIN_MODEL_SAMPLES` samples.
 
 ## Wall time and time zones
 
@@ -174,14 +195,17 @@ Every page change is recorded: page turns (queued ones too), chapter skips, link
 table of contents, Go to %, bookmarks and sync jumps.
 
 **`E` event (8 bytes)**: type, size, kind (1 dictionary lookup, 2 clipping saved, 3 bookmark
-added, 4 end-of-book screen shown, 5 pause, 6 resume), reserved, ms since session start.
+added, 4 end-of-book screen shown, 5 pause, 6 resume, 7 dictionary sheet open, 8 dictionary sheet
+closed), reserved, ms since session start. Readers skip kinds they do not know.
 
 **`X` session end (48 bytes)**: type, size, reason (1 closed/Home/other book/restart, 2 sleep, 3
 automatic sleep, 4 reset), flags, length in ms, active seconds, endUtc (0 = unknown),
 `charsRead`, `learnedMs`, page changes forward, back, jumps, lookups, clippings, bookmarks, end
-paper page, end percent, end spine item, tzOffsetMin at the end, reserved.
+paper page, end percent, end spine item, tzOffsetMin at the end, `dictSec` (dictionary time in
+seconds, part of the active seconds; this was a reserved field written as 0, so older logs read
+0). The flags are the session's (`SESSION_*`, below).
 
-### Session index: `sessions.bin` (version 1, 56-byte records)
+### Session index: `sessions.bin` (version 2, 64-byte records)
 
 One record per finished session, in the order they finished (by book after a rebuild). Built from
 the raw logs; the screens read this instead of the logs.
@@ -196,11 +220,19 @@ the raw logs; the screens read this instead of the logs.
 | startPercentBp, endPercentBp | position, basis points (10000 = end-of-book screen) |
 | startPaperPage, endPaperPage | position, paper pages (0 = unknown) |
 | startSpine, endSpine | spine items |
-| flags | 1 wall time known, 2 short open, 4 closed by recovery, 8 light on at start, 16 finished the book |
+| flags | 1 wall time known, 2 short open, 4 closed by recovery, 8 light on at start, 16 finished the book, 32 idle-trimmed (ended by automatic sleep, see Active time) |
 | endReason | as in `X` |
 | fontSize, orientation | at start |
 | sessionSeq | session number, unique, also in the raw log |
 | charsRead, learnedMs | exact text read and its active time (speed) |
+| dictSec | time in the dictionary sheet, part of activeSec (version 2) |
+| paperPagesTotal | paper pages in the book as last known in the session, 0 = unknown (version 2); then 2 reserved bytes |
+
+Version 2 appended `dictSec`, `paperPagesTotal` and brought the idle trim. A version 1 file is
+rebuilt from the raw logs at the next check, which also trims older automatic-sleep sessions.
+Only that rebuild creates `sessions.bin`: a session that ends while it is missing or of another
+version is not appended (it is in its raw log), so a new file never holds a single session and
+passes as complete.
 
 ### Book registry: `books.bin` (version 1, 512-byte records)
 
@@ -229,9 +261,11 @@ record per local day with counted reading, in day order: local day number (days 
 1970-01-01), active seconds, sessions, sittings, paper pages moved forward. Hidden books and
 sessions without wall time are not in it.
 
-### Session in progress: `current.bin` (version 1)
+### Session in progress: `current.bin` (version 2)
 
-The running session's totals so far (header, document id, a session record). Written in place
+The running session's totals so far (header, document id, a session record; 112 bytes). Version 1
+(104 bytes, a version 1 session record) is still read, with the version 2 fields 0, so a session
+cut by a reset before an update is still recovered. Written in place
 (same size every time) before the session's records first reach the log (the first flush, or
 the session end), then at each flush that has news. Deleted when the session ends. If it is found later (the
 reader reset):
@@ -265,7 +299,11 @@ reader reset):
   once and keeps 41 bytes per book and 16 per reading day in RAM.
 - `sessions.bin` is rebuilt from the raw logs when it is missing or has another version (a
   version bump of the index is handled this way). Sessions without an `X` record are closed at
-  their last record, with the active time re-estimated from the book's current speed model.
+  their last record, with the active and dictionary time re-estimated from the book's current
+  speed model. Automatic-sleep sessions without flag 32 get the idle trim. The new index is
+  written to `sessions.bin.tmp` and replaces the old file only when every book was replayed and
+  written; otherwise the old file stays and the next check tries again. The book or stats screen
+  that triggers it shows "Updating reading stats"; the log gives the time it took.
 - The raw logs and the registry are never rebuilt.
 
 Checks happen when a book opens and when the Reading Stats screen opens
@@ -279,15 +317,66 @@ modification time. The reader sets the SD card's file dates from its trusted clo
 (`HalStorage::setFileClock`, set at boot), so a rewritten file gets a new modification time and is
 backed up. Without a trusted clock, files get SdFat's default date, as before.
 
+## Per book
+
+The book screens add up the book's counted sessions (`countsInTotals`) from `sessions.bin` in
+file order plus the running session (`StatsLogic::addBookSession`); the hidden flag does not
+apply. They do not read `booktotals.bin`, so they always match the sessions they list.
+
+- **Reading speed**: paper pages (1,800 characters) per hour from `charsRead / learnedMs`; shown
+  once 5 minutes of reading are measured.
+- **Time to finish**: the paper pages left (the latest known `paperPagesTotal` of the book's
+  sessions minus the latest known paper page) at that speed; else, without a length
+  or speed, the time spent per percent so far times the percent left (from where the first
+  counted session started to the last position, at least 1%). Not shown for a finished book.
+- **Days to finish**: local calendar days from the first dated session to the finish, both
+  included, each day by its session's own offset.
+- **Dates** (first and last read, finished, the Books list's last read day): local days by each
+  session's own offset, as in the day list.
+- **Progress** chart: the position where each reading day's last session ended, from the first
+  reading day to the last, in at most 60 columns; a column without reading carries the previous
+  value. At most `MAX_PROGRESS_POINTS` + 1 (129) points of 8 bytes are kept: past that every
+  second one is dropped, the first and the last stay.
+- **Sessions** list: the newest `MAX_BOOK_SESSIONS` (100) counted sessions.
+
+### Reading style
+
+From the book's counted sessions with a known date (`StyleAcc`, `classifyStyle`). Terms: *reading
+days* = local days with such a session; *span* = days from the first reading day to the last,
+both included; *dense* = reading days x 2 >= span. The first rule that matches:
+
+| Style | Rule |
+|---|---|
+| (none, shown "-") | fewer than `STYLE_MIN_SESSIONS` (2) dated sessions |
+| Stalled | not finished, the clock is set, and the last reading day is more than `STALLED_DAYS` (30) days ago |
+| Binge | dense, and active time / reading days >= `BINGE_DAY_SEC` (1 h per reading day on average) |
+| Snacking | active time / sessions < `SNACK_SESSION_SEC` (10 min) |
+| Steady | dense |
+| Intermittent | anything else |
+
+### Weekday x hour grid
+
+Calendar sessions (`countsInCalendar`) that started on or after the range's first day: the last
+30 days, the last 365 days, or all. Without a trusted clock every range shows all. Each
+session's active time is spread evenly over the local hours its wall time covers (start to start
+plus length; a session of more than a day goes to its start hour), in cells of weekday (Monday
+first) x hour (`addToHourGrid`). A cell is shaded in thirds of the busiest cell (`gridShade`).
+
 ## Screens
+
+All screens work with the buttons alone; touch is optional.
 
 | Screen | Reads |
 |---|---|
-| Overview (today, this week/month/year, total, current and longest streak, books finished this year) | `days.bin`, its header (undated time), `booktotals.bin` (finished), hidden flags from `books.bin`, the running session |
+| Overview (today, this week/month/year, total, current and longest streak, books finished this year; opens Books, Hidden Books, When I Read) | `days.bin`, its header (undated time), `booktotals.bin` (finished), hidden flags from `books.bin`, the running session |
 | Days (30), Weeks (26), Months (12), Years (up to 10) bar charts | `days.bin` + running session |
-| Day list (sessions of one day) | `sessions.bin` (one pass), titles and hidden flags from `books.bin` |
-| Later: per-book view (totals, session lengths, progress over time, speed, time to finish) | `booktotals.bin`, `sessions.bin` filtered by book, the book's raw log for progress |
-| Later: weekday x hour grid, reading style labels, compare two books, records, year in review | `sessions.bin` (start, length, active time, gaps between days) |
+| Week or month drill-down (reading days of a Weeks or Months bar) | `days.bin` + running session |
+| Day list (sessions of one day; Confirm opens the session's book page) | `sessions.bin` (one pass), titles and hidden flags from `books.bin` |
+| Books, Hidden Books (time, last read, style; last read first) | `sessions.bin` (one pass, 16 + 16 + 1 bytes per book while loading), hidden flags and titles from `books.bin`, the running session |
+| Book page: Summary, Progress, Sessions (from the lists, the day list, the book's hold menu on Home or in the Library's Recent view, the reader menu) | `sessions.bin` filtered by book, the running session, title and hidden flag from `books.bin`; up to 100 session rows of 28 bytes and 129 progress points of 8 bytes |
+| Compare two books (time, speed, sessions, sittings, style, days to finish; the second book from the books not hidden) | as the book page, without the session rows |
+| When I Read (weekday x hour grid) | `sessions.bin` + running session |
+| Later: records, year in review | `sessions.bin` |
 | Later: "what hooked me" (time and speed per chapter, where pauses and sessions start, turns back) | the book's raw log (`T`, `E` and `S` records by spine item) |
 | Later: lookups per hour | `E` records, `/Vocabulary.txt` |
 | Later: speed trends by month, time of day, font size | `sessions.bin` (`charsRead`, `learnedMs`, font size) |

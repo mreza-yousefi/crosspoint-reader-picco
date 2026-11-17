@@ -19,10 +19,10 @@ constexpr const char* CURRENT_PATH = "/.crosspoint/stats/current.bin";
 
 constexpr uint16_t RAW_LOG_VERSION = 1;
 constexpr uint16_t REGISTRY_VERSION = 1;
-constexpr uint16_t SESSIONS_VERSION = 1;
+constexpr uint16_t SESSIONS_VERSION = 2;
 constexpr uint16_t TOTALS_VERSION = 1;
 constexpr uint16_t DAYS_VERSION = 1;
-constexpr uint16_t CURRENT_VERSION = 1;
+constexpr uint16_t CURRENT_VERSION = 2;
 
 inline constexpr char MAGIC_LOG[4] = {'C', 'P', 'R', 'L'};
 inline constexpr char MAGIC_REGISTRY[4] = {'C', 'P', 'B', 'R'};
@@ -61,22 +61,26 @@ inline bool headerMatches(const FileHeader& header, const char (&magic)[4], cons
 enum RawType : uint8_t { RAW_START = 'S', RAW_TURN = 'T', RAW_EVENT = 'E', RAW_END = 'X' };
 enum TurnKind : uint8_t { TURN_NEXT = 1, TURN_PREV = 2, TURN_JUMP_FWD = 3, TURN_JUMP_BACK = 4 };
 // Pause/resume: a menu or the stats screen over the page (that time is not reading).
+// Dictionary open/close: the definition sheet of a lookup (reading time, not page time).
 enum EventKind : uint8_t {
   EVENT_LOOKUP = 1,
   EVENT_CLIPPING = 2,
   EVENT_BOOKMARK = 3,
   EVENT_END_OF_BOOK = 4,
   EVENT_PAUSE = 5,
-  EVENT_RESUME = 6
+  EVENT_RESUME = 6,
+  EVENT_DICT_OPEN = 7,
+  EVENT_DICT_CLOSE = 8
 };
 enum EndReason : uint8_t { END_EXIT = 1, END_SLEEP = 2, END_AUTO_SLEEP = 3, END_CRASH = 4 };
 
 enum SessionFlag : uint8_t {
-  SESSION_WALL_KNOWN = 1 << 0,  // startUtc is trusted wall time
-  SESSION_SHORT = 1 << 1,       // fails the short-open rule (isShortOpen)
-  SESSION_CRASHED = 1 << 2,     // closed by recovery, not by the reader
-  SESSION_LIGHT_ON = 1 << 3,    // frontlight on at session start
-  SESSION_FINISHED = 1 << 4,    // crossed FINISHED_BP or reached the end-of-book screen
+  SESSION_WALL_KNOWN = 1 << 0,    // startUtc is trusted wall time
+  SESSION_SHORT = 1 << 1,         // fails the short-open rule (isShortOpen)
+  SESSION_CRASHED = 1 << 2,       // closed by recovery, not by the reader
+  SESSION_LIGHT_ON = 1 << 3,      // frontlight on at session start
+  SESSION_FINISHED = 1 << 4,      // crossed FINISHED_BP or reached the end-of-book screen
+  SESSION_IDLE_TRIMMED = 1 << 5,  // ended by automatic sleep; the last stretch is already trimmed
 };
 
 struct RawStart {
@@ -141,7 +145,7 @@ struct RawEnd {
   uint16_t endPercentBp;
   uint16_t endSpine;
   int16_t tzOffsetMin;  // at endUtc
-  uint32_t reserved;
+  uint32_t dictSec;     // time in the dictionary sheet (part of activeSec); 0 in logs from before it
 };
 static_assert(sizeof(RawEnd) == 48);
 
@@ -203,8 +207,12 @@ struct SessionRecord {
   uint32_t sessionSeq;
   uint32_t charsRead;  // as in RawEnd: reading speed = charsRead / learnedMs
   uint32_t learnedMs;
+  // Version 2:
+  uint32_t dictSec;          // time in the dictionary sheet, part of activeSec
+  uint16_t paperPagesTotal;  // paper pages in the book, as last known in the session; 0 = unknown
+  uint16_t reserved;
 };
-static_assert(sizeof(SessionRecord) == 56);
+static_assert(sizeof(SessionRecord) == 64);
 
 // --- Book registry: books.bin, RegistryHeader then BookRecord[] (primary data only) ------
 
@@ -275,10 +283,12 @@ static_assert(sizeof(DayRecord) == 16);
 // --- In-progress session: current.bin -----------------------------------------------------
 
 struct CurrentRecord {
-  FileHeader file;  // "CPCS"
+  FileHeader file;  // "CPCS", headerSize = sizeof(CurrentRecord)
   char docId[DOC_ID_LEN];
   SessionRecord session;  // totals so far
 };
-static_assert(sizeof(CurrentRecord) == 104);
+static_assert(sizeof(CurrentRecord) == 112);
+// Version 1 held a 56-byte SessionRecord (no version 2 fields); recovery still reads it.
+constexpr uint16_t CURRENT_V1_SIZE = 104;
 
 }  // namespace stats

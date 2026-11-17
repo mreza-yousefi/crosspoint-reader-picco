@@ -56,6 +56,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
 #include "activities/stats/ReadingStatsActivity.h"
+#include "activities/stats/ReadingStatsBookActivity.h"
 #include "activities/util/FrontlightPanelActivity.h"
 #include "clippings/ClippingText.h"
 #include "clippings/ClippingsManager.h"
@@ -328,6 +329,8 @@ bool EpubReaderActivity::loadBook() {
   if (!CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub")) {
     LOG_ERR("CLIP", "Failed to load clippings for %s", epub->getPath().c_str());
   }
+  // Once after a stats format update the session index is rebuilt from the logs.
+  if (READING_STATS.needsLogRebuild()) GUI.drawPopup(renderer, tr(STR_STATS_UPDATING));
   READING_STATS.beginSession(documentId, bookPath, epub->getTitle(), epub->getAuthor());
   return true;
 }
@@ -1496,6 +1499,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       startActivityForResult(std::move(statsScreen), [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::OPEN_BOOK_STATS:
+      if (!ReadingStatsBookActivity::push(*this, renderer, mappedInput, READING_STATS.liveBookIndex())) requestUpdate();
+      break;
   }
 }
 

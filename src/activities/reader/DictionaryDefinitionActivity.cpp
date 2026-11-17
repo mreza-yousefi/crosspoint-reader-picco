@@ -23,6 +23,7 @@
 #include "components/HeaderBackTapTarget.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "stats/ReadingStats.h"
 #include "util/DictHtmlPages.h"
 #include "util/HtmlToPlainText.h"
 #include "util/SlideSwitch.h"
@@ -140,6 +141,8 @@ void DictionaryDefinitionActivity::onEnter() {
   // A dictionary lookup started under the touch lock (only the reader's
   // lookup chain handles the follow-up result).
   followUp = lookup && lookupPausesTouchLock;
+  // A lookup's sheet is reading time, kept apart from the page underneath.
+  if (lookup) READING_STATS.setDictionaryOpen(true);
   initialLayoutFailed = !prepareDefinition(content);
   if (initialLayoutFailed) {
     content.lines.clear();
@@ -176,6 +179,7 @@ void DictionaryDefinitionActivity::prepareForSleep() {
 void DictionaryDefinitionActivity::onExit() {
   recordIfShownLongEnough();
   Activity::onExit();
+  if (lookup) READING_STATS.setDictionaryOpen(false);
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->releaseSdFontCaches();
   }

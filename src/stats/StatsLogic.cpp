@@ -100,9 +100,12 @@ void ActiveClock::begin(const float newRate, const uint16_t typicalPageChars) {
   typicalChars = typicalPageChars >= MIN_LEARN_CHARS ? typicalPageChars : DEFAULT_PAGE_CHARS;
   started = false;
   paused = false;
+  inDict = false;
   lastMs = 0;
   pausedAtMs = 0;
+  dictSinceMs = 0;
   activeMs = 0;
+  dictMs = 0;
 }
 
 uint32_t ActiveClock::capMs(const uint16_t chars) const { return dwellCapSec(rate, chars) * 1000; }
@@ -110,6 +113,7 @@ uint32_t ActiveClock::capMs(const uint16_t chars) const { return dwellCapSec(rat
 void ActiveClock::start(const uint32_t nowMs, const PagePos& pos) {
   started = true;
   paused = false;
+  inDict = false;
   last = pos;
   lastMs = nowMs;
 }
@@ -131,6 +135,7 @@ ActiveClock::Turn ActiveClock::turn(const uint32_t nowMs, const uint8_t kind, co
     start(nowMs, pos);
     return result;
   }
+  dictionaryClose(nowMs);
   resume(nowMs);
   const uint32_t dwellMs = nowMs - lastMs;
   result.charsKnown =
@@ -152,6 +157,7 @@ ActiveClock::Turn ActiveClock::turn(const uint32_t nowMs, const uint8_t kind, co
 
 void ActiveClock::pause(const uint32_t nowMs) {
   if (!started || paused) return;
+  dictionaryClose(nowMs);
   paused = true;
   pausedAtMs = nowMs;
 }
@@ -162,10 +168,43 @@ void ActiveClock::resume(const uint32_t nowMs) {
   lastMs += nowMs - pausedAtMs;  // the dwell goes on as if the pause had not happened
 }
 
-uint32_t ActiveClock::activeMsAt(const uint32_t nowMs) const {
-  if (!started) return activeMs;
-  const uint32_t end = paused ? pausedAtMs : nowMs;
-  return activeMs + std::min(end - lastMs, capMs(typicalChars));
+void ActiveClock::dictionaryOpen(const uint32_t nowMs) {
+  if (!started || inDict) return;
+  resume(nowMs);  // a lookup started from the menu is reading again
+  inDict = true;
+  dictSinceMs = nowMs;
+}
+
+void ActiveClock::dictionaryClose(const uint32_t nowMs) {
+  if (!inDict) return;
+  inDict = false;
+  dictMs += std::min(nowMs - dictSinceMs, DICT_MAX_SEC * 1000);
+  lastMs += nowMs - dictSinceMs;  // the page dwell goes on as if the lookup had not happened
+}
+
+uint32_t ActiveClock::openDwellMs(const uint32_t nowMs) const {
+  if (!started) return 0;
+  const uint32_t end = paused ? pausedAtMs : inDict ? dictSinceMs : nowMs;
+  return std::min(end - lastMs, capMs(typicalChars));
+}
+
+uint32_t ActiveClock::typicalDwellMs() const {
+  if (!(rate > 0.0f)) return IDLE_TRIM_DEFAULT_SEC * 1000;
+  return static_cast<uint32_t>(rate * static_cast<float>(typicalChars));  // rate is ms per char
+}
+
+uint32_t ActiveClock::dictionaryMsAt(const uint32_t nowMs, const bool trimIdle) const {
+  if (!inDict) return dictMs;
+  const uint32_t open = std::min(nowMs - dictSinceMs, DICT_MAX_SEC * 1000);
+  return dictMs + (trimIdle ? std::min(open, typicalDwellMs()) : open);
+}
+
+uint32_t ActiveClock::activeMsAt(const uint32_t nowMs, const bool trimIdle) const {
+  uint32_t page = openDwellMs(nowMs);
+  // The open stretch is the dictionary when it is up, else the page dwell. A paused dwell
+  // ended before the pause: it was reading, not idle time.
+  if (trimIdle && !inDict && !paused) page = std::min(page, typicalDwellMs());
+  return activeMs + page + dictionaryMsAt(nowMs, trimIdle);
 }
 
 bool isShortOpen(const uint32_t activeSec, const uint32_t turns) { return activeSec < SHORT_OPEN_SEC || turns == 0; }
@@ -208,11 +247,13 @@ bool LogScanner::next(uint8_t* buf, size_t& size) {
   return true;
 }
 
-void LogReplay::begin(const uint16_t book, const float bookRate, const uint16_t typicalPageChars, const uint32_t skip) {
+void LogReplay::begin(const uint16_t book, const float bookRate, const uint16_t typicalPageChars, const uint32_t skip,
+                      const bool trim) {
   bookIndex = book;
   rate = bookRate;
   typicalChars = typicalPageChars;
   skipSeq = skip;
+  idleTrim = trim;
   open = false;
 }
 
@@ -235,6 +276,19 @@ bool LogReplay::close(const RawEnd* end, SessionRecord& out) {
     rec.endSpine = end->endSpine;
     rec.charsRead = end->charsRead;
     rec.learnedMs = end->learnedMs;
+    rec.dictSec = end->dictSec;
+    if (idleTrim && end->reason == END_AUTO_SLEEP && !(end->flags & SESSION_IDLE_TRIMMED)) {
+      // Written before the idle trim: take the trimmed part of the last stretch off.
+      const uint32_t endMs = end->durationMs;
+      const uint64_t trimMs = clock.activeMsAt(endMs) - clock.activeMsAt(endMs, true);
+      const uint64_t dictTrimMs = clock.dictionaryMsAt(endMs) - clock.dictionaryMsAt(endMs, true);
+      const uint64_t activeMs = static_cast<uint64_t>(rec.activeSec) * 1000;
+      const uint64_t dictMsTotal = static_cast<uint64_t>(rec.dictSec) * 1000;
+      rec.activeSec = static_cast<uint32_t>(activeMs > trimMs ? (activeMs - trimMs) / 1000 : 0);
+      rec.dictSec = static_cast<uint32_t>(dictMsTotal > dictTrimMs ? (dictMsTotal - dictTrimMs) / 1000 : 0);
+      rec.flags |= SESSION_IDLE_TRIMMED;
+      if (isShortOpen(rec.activeSec, rec.turnsFwd + rec.turnsBack + rec.jumps)) rec.flags |= SESSION_SHORT;
+    }
     if (rec.startUtc == 0 && end->endUtc > rec.durationSec) {
       // The clock became trusted during the session: date it from the end.
       rec.startUtc = end->endUtc - rec.durationSec;
@@ -244,6 +298,7 @@ bool LogReplay::close(const RawEnd* end, SessionRecord& out) {
   } else {
     rec.durationSec = lastMs / 1000;
     rec.activeSec = clock.activeMsAt(lastMs) / 1000;
+    rec.dictSec = clock.dictionaryMsAt(lastMs) / 1000;
     rec.endReason = END_CRASH;
     rec.flags |= SESSION_CRASHED;
     if (isShortOpen(rec.activeSec, rec.turnsFwd + rec.turnsBack + rec.jumps)) rec.flags |= SESSION_SHORT;
@@ -270,6 +325,7 @@ bool LogReplay::feed(const uint8_t* record, const size_t size, SessionRecord& ou
       rec.fontSize = start.fontSize;
       rec.orientation = start.orientation;
       rec.sessionSeq = start.sessionSeq;
+      rec.paperPagesTotal = start.paperPagesTotal;
       clock.begin(rate, typicalChars);
       clock.start(start.tMs, replayPos(start.spine, start.offset));
       lastMs = start.tMs;
@@ -321,6 +377,12 @@ bool LogReplay::feed(const uint8_t* record, const size_t size, SessionRecord& ou
           break;
         case EVENT_RESUME:
           clock.resume(event.tMs);
+          break;
+        case EVENT_DICT_OPEN:
+          clock.dictionaryOpen(event.tMs);
+          break;
+        case EVENT_DICT_CLOSE:
+          clock.dictionaryClose(event.tMs);
           break;
         default:
           break;
@@ -490,6 +552,162 @@ void bucketActive(const DayRecord* days, const size_t dayCount, const Range rang
   for (size_t i = 0; i < dayCount; ++i) {
     const int32_t bucket = bucketOf(range, days[i].day);
     if (bucket >= firstBucket && bucket < firstBucket + count) out[bucket - firstBucket] += days[i].activeSec;
+  }
+}
+
+void bucketDays(const Range range, const int32_t bucket, int32_t& firstDay, int32_t& lastDay) {
+  switch (range) {
+    case Range::Day:
+      firstDay = lastDay = bucket;
+      return;
+    case Range::Week:
+      firstDay = weekStartDay(bucket);
+      lastDay = firstDay + 6;
+      return;
+    case Range::Month: {
+      const int year = floorDiv(bucket, 12);
+      const auto month = static_cast<unsigned>(bucket - year * 12) + 1;
+      firstDay = daysFromCivil(year, month, 1);
+      lastDay = month == 12 ? daysFromCivil(year + 1, 1, 1) - 1 : daysFromCivil(year, month + 1, 1) - 1;
+      return;
+    }
+    case Range::Year:
+      firstDay = daysFromCivil(bucket, 1, 1);
+      lastDay = daysFromCivil(bucket + 1, 1, 1) - 1;
+      return;
+  }
+  firstDay = lastDay = bucket;
+}
+
+void addToHourGrid(uint32_t* grid, const SessionRecord& session) {
+  if (!hasWallTime(session) || session.activeSec == 0) return;
+  const int64_t start = static_cast<int64_t>(session.startUtc) + static_cast<int64_t>(session.tzOffsetMin) * 60;
+  // A day or longer is not one sitting: all of it goes to the start hour.
+  const int64_t length = session.durationSec == 0 || session.durationSec > 86400 ? 1 : session.durationSec;
+  const int64_t end = start + length;
+  uint32_t left = session.activeSec;
+  for (int64_t t = start; t < end && left > 0;) {
+    const int64_t next = std::min<int64_t>((static_cast<int64_t>(floorDiv(t, 3600)) + 1) * 3600, end);
+    const uint32_t share =
+        next == end ? left : std::min<uint32_t>(left, static_cast<uint32_t>(session.activeSec * (next - t) / length));
+    const int32_t day = floorDiv(t, 86400);
+    const int hour = static_cast<int>((t - static_cast<int64_t>(day) * 86400) / 3600);
+    grid[weekday(day) * 24 + hour] += share;
+    left -= share;
+    t = next;
+  }
+}
+
+int gridShade(const uint32_t value, const uint32_t max) {
+  if (value == 0 || max == 0) return 0;
+  return static_cast<int>(std::min<uint64_t>(3, (3ull * value + max - 1) / max));
+}
+
+void addStyleSession(StyleAcc& acc, const SessionRecord& session) {
+  if (!hasWallTime(session)) return;
+  const int32_t day = localDay(session.startUtc, session.tzOffsetMin);
+  if (acc.sessions == 0) {
+    acc.firstDay = acc.lastDay = day;
+    acc.days = 1;
+  } else if (day != acc.lastDay) {
+    acc.days = addSat16(acc.days, 1);
+    acc.firstDay = std::min(acc.firstDay, day);
+    acc.lastDay = std::max(acc.lastDay, day);
+  }
+  acc.sessions = addSat16(acc.sessions, 1);
+  acc.activeSec += session.activeSec;
+}
+
+ReadingStyle classifyStyle(const StyleAcc& acc, const bool finished, const bool todayKnown, const int32_t today) {
+  if (acc.sessions < STYLE_MIN_SESSIONS || acc.days == 0) return ReadingStyle::None;
+  if (!finished && todayKnown && today - acc.lastDay > STALLED_DAYS) return ReadingStyle::Stalled;
+  const int64_t span = static_cast<int64_t>(acc.lastDay) - acc.firstDay + 1;
+  const bool dense = static_cast<int64_t>(acc.days) * 2 >= span;
+  if (dense && acc.activeSec / acc.days >= BINGE_DAY_SEC) return ReadingStyle::Binge;
+  if (acc.activeSec / acc.sessions < SNACK_SESSION_SEC) return ReadingStyle::Snacking;
+  return dense ? ReadingStyle::Steady : ReadingStyle::Intermittent;
+}
+
+bool addBookSession(BookAggregate& agg, const SessionRecord& session, const bool ignoreShort,
+                    std::vector<ProgressPoint>* points) {
+  const bool wasFinished = agg.totals.finishedUtc != 0;
+  const bool counted = applySession(agg.totals, false, session, ignoreShort).counted;
+  if (!wasFinished && agg.totals.finishedUtc > 1) {
+    agg.finishedDay = localDay(agg.totals.finishedUtc, session.tzOffsetMin);
+    agg.hasFinishedDay = true;
+  }
+  if (!counted) return false;
+  agg.lookups += session.lookups;
+  agg.dictSec += session.dictSec;
+  if (!agg.hasFirst) {
+    agg.firstPercentBp = session.startPercentBp;
+    agg.hasFirst = true;
+  }
+  if (session.endPaperPage > 0) agg.lastPaperPage = session.endPaperPage;
+  if (session.paperPagesTotal > 0) agg.paperPagesTotal = session.paperPagesTotal;
+  addStyleSession(agg.style, session);
+  if (points && hasWallTime(session)) {
+    const ProgressPoint point{localDay(session.startUtc, session.tzOffsetMin), session.endPercentBp};
+    const auto it = std::lower_bound(points->begin(), points->end(), point.day,
+                                     [](const ProgressPoint& p, const int32_t day) { return p.day < day; });
+    if (it != points->end() && it->day == point.day) {
+      it->percentBp = point.percentBp;
+    } else {
+      points->insert(it, point);
+    }
+    if (points->size() > MAX_PROGRESS_POINTS) {
+      // Keep the first, every second one after it, and the last.
+      auto& p = *points;
+      const size_t count = p.size();
+      size_t kept = 0;
+      for (size_t i = 0; i < count; i += 2) p[kept++] = p[i];
+      if (count % 2 == 0) p[kept++] = p[count - 1];
+      p.resize(kept);
+    }
+  }
+  return true;
+}
+
+uint32_t pagesPerHour(const uint32_t charsRead, const uint32_t learnedMs) {
+  constexpr uint32_t MIN_MEASURED_MS = 5 * 60 * 1000;
+  if (learnedMs < MIN_MEASURED_MS || charsRead == 0) return 0;
+  const uint64_t denominator = static_cast<uint64_t>(learnedMs) * PAPER_PAGE_CHARS;
+  return static_cast<uint32_t>((static_cast<uint64_t>(charsRead) * 3600000 + denominator / 2) / denominator);
+}
+
+uint32_t secondsToFinish(const BookAggregate& agg) {
+  const BookTotals& t = agg.totals;
+  const uint16_t paperPagesTotal = agg.paperPagesTotal;
+  if (t.finishedUtc != 0) return 0;
+  if (paperPagesTotal > 0 && agg.lastPaperPage > 0 && agg.lastPaperPage < paperPagesTotal &&
+      pagesPerHour(t.charsRead, t.learnedMs) > 0) {
+    const uint64_t charsLeft = static_cast<uint64_t>(paperPagesTotal - agg.lastPaperPage) * PAPER_PAGE_CHARS;
+    return static_cast<uint32_t>(charsLeft * t.learnedMs / t.charsRead / 1000);
+  }
+  constexpr uint16_t MIN_PROGRESS_BP = 100;  // 1 %
+  if (agg.hasFirst && t.lastPercentBp < END_OF_BOOK_BP && t.lastPercentBp >= agg.firstPercentBp + MIN_PROGRESS_BP) {
+    const uint32_t progressed = t.lastPercentBp - agg.firstPercentBp;
+    return static_cast<uint32_t>(static_cast<uint64_t>(END_OF_BOOK_BP - t.lastPercentBp) * t.totalActiveSec /
+                                 progressed);
+  }
+  return 0;
+}
+
+int daysToFinish(const BookAggregate& agg) {
+  if (!agg.hasFinishedDay || agg.style.sessions == 0 || agg.finishedDay < agg.style.firstDay) return 0;
+  return static_cast<int>(agg.finishedDay - agg.style.firstDay) + 1;
+}
+
+void progressColumns(const ProgressPoint* points, const size_t count, const int32_t firstDay, const int32_t lastDay,
+                     const int columns, uint16_t* out) {
+  if (columns <= 0) return;
+  const int64_t span = std::max<int64_t>(1, static_cast<int64_t>(lastDay) - firstDay + 1);
+  uint16_t value = 0;
+  size_t i = 0;
+  for (int c = 0; c < columns; ++c) {
+    const int64_t columnLast = firstDay + (static_cast<int64_t>(c) + 1) * span / columns - 1;
+    while (i < count && points[i].day <= columnLast) value = points[i++].percentBp;
+    out[c] = value;
   }
 }
 

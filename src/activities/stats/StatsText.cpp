@@ -94,4 +94,27 @@ void clockTime(const int minuteOfDay, char* out, const size_t size) {
   }
 }
 
+int minuteOfDay(const uint32_t utc, const int16_t tzOffsetMin) {
+  const int64_t local = static_cast<int64_t>(utc) + static_cast<int64_t>(tzOffsetMin) * 60;
+  return static_cast<int>((local - static_cast<int64_t>(stats::localDay(utc, tzOffsetMin)) * 86400) / 60);
+}
+
+const char* styleName(const stats::ReadingStyle style) {
+  switch (style) {
+    case stats::ReadingStyle::Binge:
+      return tr(STR_STATS_STYLE_BINGE);
+    case stats::ReadingStyle::Steady:
+      return tr(STR_STATS_STYLE_STEADY);
+    case stats::ReadingStyle::Snacking:
+      return tr(STR_STATS_STYLE_SNACKING);
+    case stats::ReadingStyle::Intermittent:
+      return tr(STR_STATS_STYLE_INTERMITTENT);
+    case stats::ReadingStyle::Stalled:
+      return tr(STR_STATS_STYLE_STALLED);
+    case stats::ReadingStyle::None:
+      break;
+  }
+  return "-";
+}
+
 }  // namespace statstext

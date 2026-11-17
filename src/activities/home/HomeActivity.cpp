@@ -22,6 +22,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/stats/ReadingStatsBookActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -274,28 +275,32 @@ void HomeActivity::freeCoverBuffer() {
   coverBufferStored = false;
 }
 
-// Hold menu for a book: Open / Remove from Recents, and Hide from / Show in Stats once the
-// reading stats know the book.
+// Hold menu for a book: Open / Remove from Recents, and Hide from / Show in Stats and the
+// book's Reading Stats once the reading stats know the book.
 void HomeActivity::showRecentBookOptions(const int index) {
   if (index < 0 || index >= static_cast<int>(recentBooks.size())) return;
   selectorIndex = index;
   const std::string path = recentBooks[index].path;
   const std::string title = recentBooks[index].title;
-  const auto statsState = READING_STATS.hiddenState(KOReaderDocumentId::calculate(path));
-  const bool inStats = statsState != ReadingStats::Hidden::Unknown;
+  const std::string docId = KOReaderDocumentId::calculate(path);
+  const auto statsState = READING_STATS.hiddenState(docId);
+  const int statsIndex = READING_STATS.bookIndexFor(docId);
+  const bool inStats = statsState != ReadingStats::Hidden::Unknown && statsIndex >= 0;
   const bool hidden = statsState == ReadingStats::Hidden::Hidden;
   const char* options[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS),
-                           hidden ? tr(STR_SHOW_IN_STATS) : tr(STR_HIDE_FROM_STATS)};
+                           hidden ? tr(STR_SHOW_IN_STATS) : tr(STR_HIDE_FROM_STATS), tr(STR_READING_STATS)};
   // Short caption, the title as a wrapping headline (as in the Library).
   // STR_HOME is the "« Home" back label, so the caption names the list.
-  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, inStats ? 3 : 2, 0,
-                   [this, path, title](const int choice) {
+  optionPopup.show(tr(STR_MENU_RECENT_BOOKS), title.c_str(), options, inStats ? 4 : 2, 0,
+                   [this, path, title, statsIndex](const int choice) {
                      if (choice == 0) {
                        onRecentBookSelected(path);
                      } else if (choice == 1) {
                        promptRemoveRecentBook(path, title);
                      } else if (choice == 2) {
                        toggleBookStats(path);
+                     } else if (choice == 3) {
+                       ReadingStatsBookActivity::push(*this, renderer, mappedInput, statsIndex);
                      }
                    });
   requestUpdate();

@@ -37,7 +37,7 @@ void EpubReaderMenuActivity::onEnter() {
   READING_STATS.setPaused(true);
   RenderLock lock;
   UiListActivity::onEnter();
-  for (size_t i = 0; i < menuItems.size(); ++i) {
+  for (size_t i = 0; i < menuItems.size() && i < MAX_MENU_ITEMS; ++i) {
     if (menuItems[i].action == selectedAction) {
       nav.reset(static_cast<int>(i));
       break;
@@ -98,6 +98,9 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
   items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
   items.push_back({MenuAction::OPEN_STATS, StrId::STR_READING_STATS});
+  if (READING_STATS.liveBookIndex() >= 0) {
+    items.push_back({MenuAction::OPEN_BOOK_STATS, StrId::STR_STATS_THIS_BOOK});
+  }
   items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   bool canSync = KOREADER_STORE.hasCredentials();
   for (size_t event = 0; !canSync && event < static_cast<size_t>(pluginevents::Event::COUNT); ++event) {
@@ -232,7 +235,7 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
 
   // menuRowItems's labels/actionValue were set once in the constructor (see
   // buildMenuRowItems()); only rows with live values need refreshing here.
-  for (size_t i = 0; i < menuItems.size(); i++) {
+  for (size_t i = 0; i < menuItems.size() && i < MAX_MENU_ITEMS; i++) {
     const auto action = menuItems[i].action;
     if (action == MenuAction::ROTATE_SCREEN) {
       menuRowItems[i].value = I18N.get(orientationLabels[pendingOrientation]);
@@ -249,7 +252,7 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
 
   fui::ListProps props;
   props.items = menuRowItems;
-  props.count = static_cast<uint16_t>(menuItems.size());
+  props.count = static_cast<uint16_t>(listCount());
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the value and the row edge

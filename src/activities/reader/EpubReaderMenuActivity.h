@@ -32,7 +32,9 @@ class EpubReaderMenuActivity final : public UiListActivity {
     DELETE_CACHE,
     DICTIONARY,
     OPEN_STATS,
-    OPEN_BOOK_STATS
+    OPEN_BOOK_STATS,
+    HISTORY_BACK,
+    HISTORY_FORWARD
   };
 
   struct MenuItem {
@@ -41,12 +43,13 @@ class EpubReaderMenuActivity final : public UiListActivity {
   };
 
   static void toggleBluetooth();
-  static void buildMenuItems(std::vector<MenuItem>& items, bool hasFootnotes, bool hasBookmarks, bool hasClippings);
+  static void buildMenuItems(std::vector<MenuItem>& items, bool hasFootnotes, bool hasBookmarks, bool hasClippings,
+                             bool hasBack, bool hasForward);
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
                                   const uint8_t currentOrientation, const bool hasFootnotes, bool hasBookmarks,
-                                  bool hasClippings, MenuAction& selectedAction);
+                                  bool hasClippings, int backPercent, int forwardPercent, MenuAction& selectedAction);
 
   void onEnter() override;
   void onExit() override;
@@ -92,4 +95,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;
+  // Book percent of the Back / Forward targets, the rows' values.
+  char backValue[6] = {};
+  char forwardValue[6] = {};
 };

@@ -15,6 +15,7 @@
 #include "ClipSelectionActivity.h"
 #include "EpubReaderMenuActivity.h"
 #include "LinkNoteTitle.h"
+#include "NavHistory.h"
 #include "PaperPages.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
@@ -122,17 +123,27 @@ class EpubReaderActivity final : public ReaderActivity {
   std::vector<PageLink> currentPageLinks;
   int currentPageLinkMarginLeft = 0;
   int currentPageLinkMarginTop = 0;
-  struct SavedPosition {
-    int spineIndex;
-    int pageNumber;
-  };
-  static constexpr int MAX_FOOTNOTE_DEPTH = 3;
-  SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
-  int footnoteDepth = 0;
-  // The back-stack outlives the reader (sleep, home) in links.bin so Back
-  // still returns to where a followed link was tapped.
-  void saveLinkStack() const;
-  void loadLinkStack();
+
+  // Back/Forward over jumps (contents, links, go to %, bookmarks, chapter skips),
+  // saved to history.bin on every change. The Back button returns from a followed link.
+  NavHistory history;
+  NavHistory::Position currentNavPosition() const;
+  // Call before a jump moves the reader.
+  void recordJump(bool link = false);
+  // A run of chapter skips (arrows, scrub, long press, remote) is one jump: only the first records.
+  // A page turn, another jump or closing the toolbar ends the run.
+  void recordChapterSkip();
+  bool chapterSkipRun = false;
+  // The Back button and Footnotes shortcuts return from a followed link.
+  bool linkReturnAvailable() const;
+  // Back (or Forward) can move: there is a target and the reader is not past the last page.
+  bool historyAvailable(bool back) const;
+  void historyBack();
+  void historyForward();
+  void goToNavPosition(const NavHistory::Position& target);
+  // Caller holds the render lock. Same chapter: the page holding offset; otherwise loads spine there.
+  void moveToTextOffset(int spine, uint32_t offset, int fallbackPage);
+  void saveHistory() const;
 
   uint16_t buildViewportWidth = 0;
   uint16_t buildViewportHeight = 0;
@@ -202,6 +213,8 @@ class EpubReaderActivity final : public ReaderActivity {
   static Overlay toolOverlay(const int tool) {
     return tool == 0 ? Overlay::Contents : (tool == 1 ? Overlay::Text : Overlay::More);
   }
+  // Overlay closed; ends a run of chapter skips.
+  void clearOverlay();
   // Sets up the overlay state for target, paints nothing. Returns the overlay it replaced.
   Overlay setOverlayState(Overlay target);
   // Clears the overlay state, paints nothing.
@@ -249,7 +262,6 @@ class EpubReaderActivity final : public ReaderActivity {
   void updateBookmarkFlag();
 
   void navigateToHref(const std::string& href, bool savePosition = false);
-  void restoreSavedPosition();
 
   // Status-bar clock: a new minute triggers a quiet repaint of the page on screen.
   // It redraws the whole B/W page (status bar included) and pushes one FAST

@@ -389,7 +389,7 @@ Side buttons, and Taps and gestures where supported by the device. See the
   - "Ignore" (default) - Require a long press to turn off the device
   - "Sleep" - A short press puts the device into sleep mode
   - "Page Turn" - A short press in reading mode turns to the next page; a long press turns the device off
-  - "Links and Footnotes" - A short press in reading mode opens link selection. If the page has only one link, it opens directly. After following a link, a short press returns to the previous location.
+  - "Links and Footnotes" - A short press in reading mode opens link selection. If the page has only one link, it opens directly. After following a link, a short press returns to the previous location if no other jump came after it (this fork); otherwise use **Back** in the Reader Menu.
   - "Refresh" - A short press triggers a manual full-screen refresh, useful for clearing ghosting
 - **Quick return from links**: Controls whether a short press of the power button acts as Back after following a link or footnote.
 
@@ -798,7 +798,7 @@ On the **Xteink X3**, the gyroscope can be used to turn pages by tilting the dev
 
 Internal EPUB links include chapter links, cross-references, and footnotes. Tap a link on a touchscreen device, or choose "Links and Footnotes" from the Reader Menu to select a link. Press Back to return to the previous location.
 
-If the device sleeps or you close the book after following a link, the book reopens on the page you were viewing. Back still returns you to where you followed the link. The reader keeps the three most recent return positions.
+If the device sleeps or you close the book after following a link, the book reopens on the page you were viewing. Back still returns you to where you followed the link, as long as no other jump came after it (this fork). Each link followed is also an entry of the [jump history](#5-reader-menu), so **Back** and **Forward** in the Reader Menu work for links too.
 
 ### Dictionary Lookup
 
@@ -834,6 +834,7 @@ The list menu remembers the selected entry while the book stays open. If that en
 Available options include:
 
 - **Select Chapter** – Open the table of contents to jump to a specific chapter (see [Chapter Selection](#51-chapter-selection) below).
+- **Back** / **Forward** (this fork, EPUB) – Go back to where you were before a jump, like Back in a web browser; **Forward** goes to where you pressed **Back**. The value on the right is the book percent of that position. A jump is a chapter from the contents, a link or footnote, **Go to %**, a bookmark or clipping, a chapter skip (long press, Bluetooth remote, or the toolbar's chapter arrows and progress bar) and a position downloaded by **Sync Progress**; page turns are not jumps. A new jump after **Back** removes the **Forward** entries. Several chapter skips in a row (without a page turn between them) count as one jump. Each book keeps its last 50 entries, also after sleep or closing the book; **Delete Book Cache** clears them. Positions are found again by text position after a font, size or orientation change. The entries show only when there is somewhere to go, and not on the end-of-book screen. With **Reader Menu Style** set to Toolbar they are at the top of the **More** panel, also when the toolbar was opened with Up+Down under the touch lock.
 - **Links and Footnotes** – Select an internal link on the current page. This option appears when the page contains links.
 - **Text Settings** – Change the font and layout of this book; the values are kept for this book only (see [Per-book text settings](#362-reader)).
 - **Look Up** – Select a word on the current page and show its dictionary definition (see [docs/dictionary.md](docs/dictionary.md)). Requires a dictionary to be selected in **Settings → Reader → Dictionary**.

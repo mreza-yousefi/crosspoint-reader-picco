@@ -16,6 +16,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
+#include "NavHistoryFile.h"
 #include "ProgressComparison.h"
 #include "ReaderUtils.h"
 #include "SilentRestart.h"
@@ -98,6 +99,10 @@ void KOReaderSyncActivity::saveProgressAndReturn(int spineIndex, int page) {
     requestUpdate(true);
     return;
   }
+  // The downloaded position is a jump: the local one becomes the reader's Back target.
+  NavHistoryFile::pushToFile(
+      *epub, localPosition.spineIndex, localPosition.pageNumber, localPosition.totalPages,
+      localPosition.hasVisibleTextOffset ? std::optional<uint32_t>(localPosition.visibleTextOffset) : std::nullopt);
   returnToReader();
 }
 

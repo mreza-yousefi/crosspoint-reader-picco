@@ -5,6 +5,8 @@
 #include <HalFrontlight.h>
 #include <I18n.h>
 
+#include <cstdio>
+
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
@@ -20,7 +22,8 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
                                                const bool hasFootnotes, const bool hasBookmarks,
-                                               const bool hasClippings, MenuAction& selectedAction)
+                                               const bool hasClippings, const int backPercent, const int forwardPercent,
+                                               MenuAction& selectedAction)
     : UiListActivity("EpubReaderMenu", renderer, mappedInput),
       selectedAction(selectedAction),
       title(title),
@@ -28,7 +31,9 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {
-  buildMenuItems(menuItems, hasFootnotes, hasBookmarks, hasClippings);
+  if (backPercent >= 0) snprintf(backValue, sizeof(backValue), "%d%%", backPercent);
+  if (forwardPercent >= 0) snprintf(forwardValue, sizeof(forwardValue), "%d%%", forwardPercent);
+  buildMenuItems(menuItems, hasFootnotes, hasBookmarks, hasClippings, backPercent >= 0, forwardPercent >= 0);
   buildMenuRowItems();
 }
 
@@ -60,15 +65,24 @@ void EpubReaderMenuActivity::buildMenuRowItems() {
     fui::ListItem item;
     item.label = I18N.get(menuItems[i].labelId);
     item.actionValue = static_cast<int16_t>(i);
+    if (menuItems[i].action == MenuAction::HISTORY_BACK) item.value = backValue;
+    if (menuItems[i].action == MenuAction::HISTORY_FORWARD) item.value = forwardValue;
     menuRowItems[i] = item;
   }
 }
 
 void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const bool hasFootnotes,
-                                            const bool hasBookmarks, const bool hasClippings) {
+                                            const bool hasBookmarks, const bool hasClippings, const bool hasBack,
+                                            const bool hasForward) {
   items.clear();
   items.reserve(MAX_MENU_ITEMS);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+  if (hasBack) {
+    items.push_back({MenuAction::HISTORY_BACK, StrId::STR_NAV_BACK});
+  }
+  if (hasForward) {
+    items.push_back({MenuAction::HISTORY_FORWARD, StrId::STR_NAV_FORWARD});
+  }
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }

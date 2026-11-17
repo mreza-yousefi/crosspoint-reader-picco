@@ -278,22 +278,33 @@ void toggleFrontlight() {
   LOG_INF("LIGHT", "Frontlight toggled %s", lightOn ? "on" : "off");
 }
 
+// Binding and position handleSlideSwitch() last applied (-1: not yet since boot).
+static int switchAppliedAction = -1;
+static int switchAppliedOn = -1;
+// Touch-lock switch position at sleep, set by enterDeepSleep(). RTC_DATA
+// survives deep sleep only; any other reset (power loss, restart) zeroes it.
+RTC_DATA_ATTR static uint8_t sleepSwitchPosition = 0;
+constexpr uint8_t SLEEP_SWITCH_OFF = 1;
+constexpr uint8_t SLEEP_SWITCH_ON = 2;
+
 // Applies the slide switch's position to the bound function at boot, on each
 // change, and when its binding changes; the physical position stays the source
 // of truth, as on stock. Touch controls are the exception: there each move
-// toggles the lock, and boot (also every wake from deep sleep) only records
-// the position, so the lock survives sleep and moves made while asleep.
+// toggles the lock, and boot only records the position, so the lock survives
+// sleep and restart. A move made while asleep toggles it at wake.
 void handleSlideSwitch() {
-  static int appliedAction = -1;
-  static int appliedOn = -1;
   if (!gpio.hasToggleSwitch()) return;
   // Compare the position, not the change edge: transfer loops poll input and
   // clear the edge before this runs.
   const bool on = gpio.isToggleSwitchOn();
-  if (appliedAction == SETTINGS.slideSwitchAction && appliedOn == static_cast<int>(on)) return;
-  const bool moved = appliedAction == SETTINGS.slideSwitchAction;  // not boot or a new binding
-  appliedAction = SETTINGS.slideSwitchAction;
-  appliedOn = on;
+  if (switchAppliedAction == SETTINGS.slideSwitchAction && switchAppliedOn == static_cast<int>(on)) return;
+  const bool movedWhileAsleep =
+      switchAppliedAction < 0 && sleepSwitchPosition != 0 && (sleepSwitchPosition == SLEEP_SWITCH_ON) != on;
+  sleepSwitchPosition = 0;
+  // Not boot or a new binding, unless the switch moved during sleep.
+  const bool moved = switchAppliedAction == SETTINGS.slideSwitchAction || movedWhileAsleep;
+  switchAppliedAction = SETTINGS.slideSwitchAction;
+  switchAppliedOn = on;
   switch (SETTINGS.slideSwitchAction) {
     case CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE:
       if ((SETTINGS.screenInverted != 0) == on) return;
@@ -642,6 +653,11 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
+  // The applied position, not the live one: a move during the sleep sequence
+  // above was not applied yet, so it counts at wake.
+  sleepSwitchPosition = switchAppliedAction == CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS
+                            ? (switchAppliedOn ? SLEEP_SWITCH_ON : SLEEP_SWITCH_OFF)
+                            : 0;
   powerManager.startDeepSleep(gpio, wakeOnHeldButton);
 }
 
@@ -905,7 +921,7 @@ void setup() {
   LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
 
   // Apply a switch moved during sleep before the first paint, so the wake
-  // screen does not draw in the old night mode and then repaint.
+  // screen does not draw in the old night mode or touch lock and then repaint.
   handleSlideSwitch();
 
   // Resolve the single boot-presentation decision. Skipping the splash also

@@ -33,7 +33,7 @@ inline bool touchLockOverride = false;
 // shortcuts stay available in the panel). Bound to touch controls, the switch
 // toggles the lock on each move and the panel's touch tile toggles it too, so
 // the saved Touch Reader Controls setting (off = locked) is the state, not the
-// switch position.
+// switch position. A move made during deep sleep toggles it at wake (main.cpp).
 inline bool slideSwitchTouchLockEngaged() {
   return slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS) &&
          SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_OFF;

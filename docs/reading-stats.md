@@ -88,7 +88,11 @@ cap = CAP_FACTOR x rate x pageChars / 1000, kept within [MIN_CAP_SEC, MAX_CAP_SE
   running average of measured pages, kept per book).
 - **Pauses**: while the reader menu (list or toolbar and its panels), a screen opened from the
   menu, or the Reading Stats screen is over the book, the clock stops; the dwell goes on when the
-  page is back. A dictionary lookup counts as reading. Pauses are in the raw log (`E` records).
+  page is back. The light panel alone does not pause; opened with the toolbar (Up + Down under the
+  touch lock) it pauses like the toolbar. A dictionary lookup counts as reading. Pauses are in the
+  raw log (`E` records).
+- **Lookups**: a lookup is counted (`E` kind 1) once its definition has been on screen for 1 s;
+  a definition closed sooner, and a word not found, are not counted.
 - Re-drawing the same page (clock update, menu closed, toolbar) does not end the dwell. A change
   of font or orientation shows a new page at almost the same place: it is recorded as a jump.
 - The last dwell ends at the session end. After automatic sleep it includes the idle time before

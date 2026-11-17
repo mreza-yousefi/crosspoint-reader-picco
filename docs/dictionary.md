@@ -54,11 +54,13 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 1. **Direct match** — the word or phrase is searched case-insensitively in the dictionary index. Leading and trailing punctuation and whitespace are stripped automatically. Hebrew niqqud and cantillation marks are removed from the search term so pointed text can match unpointed headwords. Basic Arabic vowel marks (U+064B–U+0650, U+0652) and superscript alef (U+0670) are also removed; shaddah, hamza, and maddah remain significant. Multi-word phrases match dictionary entries containing spaces (such as idioms, phrasal verbs, or compound terms). An index may list the same headword more than once (one entry per part of speech, for example); every entry it lists is shown, each labelled with its headword.
 2. **Synonyms** — on a miss, if the dictionary ships a `.syn` file, alternate spellings and irregular forms recorded there are resolved to their headword (e.g. `oxen` → `ox`, `colour` → `color`). All the headwords a synonym points at are shown. This step is skipped if the `.sidx` sidecar could not be built (e.g. transient low memory during indexing); the dictionary otherwise stays usable, and the build is retried the next time it is opened.
 3. **Stemming** — still no match: common English word forms are retried automatically: possessives and plurals (`dogs` → `dog`, `stories` → `story`) and verb endings (`walked` → `walk`, `running` → `run`, `making` → `make`).
-4. **Not found** — a short popup appears. Touchscreen devices return to reading; buttons-only devices return to word selection.
+4. **Not found** — "Not Found" appears with two buttons (this fork): **Another word** returns to word selection on the same page, **Close** returns to the book. Confirm is Another word, Back is Close, and under the touch lock Down is Close too. A tap on the page outside the box also closes it.
 
 ## Vocabulary History
 
 Successful lookups started from a book page are appended to `/Vocabulary.txt` at the root of the SD card. This is separate from `My Clippings.txt`; looking up a word does not create a highlight. Failed lookups are not recorded, and an SD-card write failure does not interrupt the dictionary.
+
+This fork skips mistaken lookups: a lookup is written (and counted in the reading stats) only once its definition has been on screen for 1 second. A definition closed sooner, or left with **Another word** sooner, is not saved. A definition left open, also when the reader then goes to sleep, is saved after that second.
 
 The file uses UTF-8 **JSON Lines**: one JSON object per line, versioned with `"v":1`. Each record has a random `id`, `word` (selected text), `headword` (dictionary match), `definition` (plain text), and `timestamp` (Unix seconds, or `null` when the clock is unavailable). It also includes `title`, `author`, `series`, `series_index`, `chapter`, `page` (1-based chapter page), `spine` (0-based EPUB spine index), and `start_offset` (EPUB source offset, or `null` when unavailable). Missing series information is represented by an empty name and a `null` index. Definitions are limited to 2 KiB, looked-up words and matched headwords to 160 UTF-8 bytes each, and book fields to bounded lengths. The `definition_truncated` boolean indicates whether the definition (but not the word or headword) was shortened; when possible the saved definition ends at a complete line. HTML dictionary definitions are converted to plain text.
 
@@ -70,7 +72,7 @@ Repeated lookups are recorded separately. Positions reflect the reader layout at
 
 - Definitions open as a sheet over the lower part of the screen. The book page stays visible above it.
 - Swipe left or right, or use the side buttons, to page. Tap above the sheet to close the lookup.
-- After a lookup, also when a word is not found, the reader goes back to the book, not to word selection.
+- After a lookup the reader goes back to the book, not to word selection. When a word is not found, **Another word** goes back to word selection instead, and **Close** to the book.
 - Under the touch lock there is no menu: a word is looked up when you lift your finger. **Another word** and **+**
   above the sheet go back to word selection. See [User Guide, Controls](../USER_GUIDE.md#363-controls).
 - **Look Up**, **Clip** and **Bookmark** show a pressed state when tapped (Look Up reads "Looking Up...").

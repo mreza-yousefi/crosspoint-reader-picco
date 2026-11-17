@@ -580,6 +580,9 @@ void enterDeepSleep(bool fromTimeout = false) {
   // floor now so a later cold boot resumes from it.
   trustedtime::note();
 
+  // Activity state that the session records (a dictionary lookup on screen) goes
+  // in first; the hook runs again before the plugin drain and is idempotent.
+  activityManager.prepareForSleep();
   // Close the reading session early in the sleep sequence, before anything that may stop it.
   READING_STATS.endSession(fromTimeout ? stats::END_AUTO_SLEEP : stats::END_SLEEP);
 

@@ -53,3 +53,21 @@ TEST(FocusReading, PreservesLetterOrderAndRunPlacement) {
     }
   }
 }
+
+// A bold start would break the joining of Arabic-script letters: such words stay in one style.
+TEST(FocusReading, LeavesArabicScriptWordsWhole) {
+  // Persian "ketab", Arabic "alkitabuha"
+  for (const char* word :
+       {"\xDA\xA9\xD8\xAA\xD8\xA7\xD8\xA8", "\xD8\xA7\xD9\x84\xD9\x83\xD8\xAA\xD8\xA7\xD8\xA8\xD9\x87\xD8\xA7"}) {
+    SCOPED_TRACE(word);
+    GfxRenderer renderer;
+    BlockStyle blockStyle;
+    blockStyle.isRtl = true;
+    blockStyle.directionDefined = true;
+    ParsedText text(false, true, blockStyle, 0);
+    text.addWord(word, EpdFontFamily::REGULAR);
+    text.layoutAndExtractLines(renderer, 0, 400, [&](auto block, auto) { block->render(renderer, 0, 0, 0); }, true, 0);
+    ASSERT_EQ(renderer.textDraws.size(), 1u);
+    EXPECT_FALSE(renderer.textDraws[0].style & EpdFontFamily::BOLD);
+  }
+}

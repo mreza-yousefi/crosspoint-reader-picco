@@ -35,6 +35,7 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   bool stepRepeated = false;  // the hold stepped: its release adds no tap step
   int panelBottom = 0;
   const char* notice = nullptr;
+  bool tapsBelowPassed = false;
 
   // Quick settings, left to right: night mode, refresh, orientation, touch, Home.
   static constexpr int kTileCount = 5;
@@ -82,6 +83,9 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // One line under the battery band explaining why the panel opened on its own
   // (e.g. the wake light check). Must outlive the panel; nullptr = none.
   void setNotice(const char* text) { notice = text; }
+  // A tap below the panel closes it and is passed back as a ScreenTapResult
+  // (the reader's toolbar under the panel).
+  void passTapsBelow() { tapsBelowPassed = true; }
   ~FrontlightPanelActivity() override;
   // Copies the current frame to put back on exit. Caller holds the render lock.
   void keepCoveredFrame();

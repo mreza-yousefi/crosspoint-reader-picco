@@ -121,6 +121,24 @@ inline bool isHebrewMark(const uint32_t cp) {
          (cp >= 0x05C4 && cp <= 0x05C5) || (cp >= 0x05C7 && cp <= 0x05C9) || cp == 0xFB1E;
 }
 
+// Arabic script (Persian, Urdu, ...): Arabic, Supplement, Extended-A and the
+// presentation forms. Its letters join, so a word must keep one style.
+inline bool utf8IsArabicScript(const uint32_t cp) {
+  return (cp >= 0x0600 && cp <= 0x06FF) || (cp >= 0x0750 && cp <= 0x077F) || (cp >= 0x08A0 && cp <= 0x08FF) ||
+         (cp >= 0xFB50 && cp <= 0xFDFF) || (cp >= 0xFE70 && cp <= 0xFEFF);
+}
+
+// NUL-terminated UTF-8. Arabic-Indic digits do not join and do not count.
+inline bool utf8ContainsArabicScriptLetter(const char* text) {
+  const auto* ptr = reinterpret_cast<const unsigned char*>(text);
+  while (*ptr) {
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+    const bool digit = (cp >= 0x0660 && cp <= 0x0669) || (cp >= 0x06F0 && cp <= 0x06F9);
+    if (!digit && utf8IsArabicScript(cp)) return true;
+  }
+  return false;
+}
+
 // Basic harakat and superscript alef, excluding shaddah, hamza and maddah.
 inline bool isArabicVowelMark(const uint32_t cp) {
   return (cp >= 0x064B && cp <= 0x0650) || cp == 0x0652 || cp == 0x0670;

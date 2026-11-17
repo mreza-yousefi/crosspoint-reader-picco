@@ -62,6 +62,13 @@ struct LookupFollowUpResult {
   Kind kind = Kind::AnotherWord;
 };
 
+// A tap that closed a screen and belongs to the one below it: the light panel
+// opened over the reader's toolbar passes a tap on the toolbar back.
+struct ScreenTapResult {
+  int16_t x = 0;
+  int16_t y = 0;
+};
+
 struct ProgressChangeResult {
   int spineIndex = 0;
   int page = 0;
@@ -91,7 +98,7 @@ struct FilePathResult {
 
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
                                    IntervalResult, PageResult, ClippingResult, ProgressChangeResult, NetworkModeResult,
-                                   FootnoteResult, FilePathResult, LookupFollowUpResult>;
+                                   FootnoteResult, FilePathResult, LookupFollowUpResult, ScreenTapResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

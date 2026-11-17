@@ -17,6 +17,8 @@
 
 #include "CrossPointSettings.h"
 #include "HapticFeedback.h"
+#include "LookupButton.h"
+#include "LookupRecordGate.h"
 #include "ReaderUtils.h"
 #include "components/HeaderBackTapTarget.h"
 #include "components/UITheme.h"
@@ -156,7 +158,23 @@ bool DictionaryDefinitionActivity::prepareDefinition(Definition& next, const boo
   return wrapText(next);
 }
 
+void DictionaryDefinitionActivity::recordIfShownLongEnough() {
+  if (!shownCallback || !lookupShownLongEnough(firstShownMs.load(), millis())) return;
+  const auto callback = std::move(shownCallback);
+  shownCallback = nullptr;
+  callback();
+}
+
+// Also recorded on leaving the sheet, or at sleep while another screen (the
+// light panel) kept its loop from running. Sleep decides once (before the
+// stats session ends): a lookup not shown long enough by then is dropped.
+void DictionaryDefinitionActivity::prepareForSleep() {
+  recordIfShownLongEnough();
+  shownCallback = nullptr;
+}
+
 void DictionaryDefinitionActivity::onExit() {
+  recordIfShownLongEnough();
   Activity::onExit();
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->releaseSdFontCaches();
@@ -185,14 +203,8 @@ DictionaryDefinitionActivity::BodyArea DictionaryDefinitionActivity::followUpBut
 }
 
 void DictionaryDefinitionActivity::drawFollowUpButton(const int index, const bool pressed) const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const BodyArea b = followUpButton(index);
-  renderer.fillRoundedRect(b.x, b.y, b.width, b.height, metrics.controlRadius, pressed ? Color::Black : Color::White);
-  if (!pressed) renderer.drawRoundedRect(b.x, b.y, b.width, b.height, 1, metrics.controlRadius, true);
-  const char* label = index == 0 ? tr(STR_ANOTHER_WORD) : "+";
-  const int textX = b.x + (b.width - renderer.getTextWidth(UI_10_FONT_ID, label)) / 2;
-  const int textY = b.y + (b.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-  renderer.drawText(UI_10_FONT_ID, textX, textY, label, !pressed);
+  drawLookupButton(renderer, Rect{b.x, b.y, b.width, b.height}, index == 0 ? tr(STR_ANOTHER_WORD) : "+", pressed);
 }
 
 // Pressed state first (one quick refresh), then back to word selection.
@@ -647,6 +659,7 @@ void DictionaryDefinitionActivity::loop() {
     if (millis() - messageTime >= MESSAGE_DURATION_MS) finish();
     return;
   }
+  recordIfShownLongEnough();
   if (lookup && !lookup->pendingWord.empty()) {
     navigateDefinition(false);
     return;
@@ -842,4 +855,5 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
     return;
   }
   renderer.displayBuffer();
+  if (firstShownMs.load() == 0) firstShownMs = millis() | 1;  // 0 means not shown
 }

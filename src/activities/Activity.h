@@ -55,6 +55,12 @@ class Activity {
   // Revert a button page turn made within windowMs: the first button of a
   // not-quite-simultaneous chord already turned a page. Returns true if undone.
   virtual bool undoRecentButtonPageTurn(unsigned long /*windowMs*/) { return false; }
+  // The light panel opens next, after undoRecentButtonPageTurn() turned the page
+  // back: paint that page into the frame (no refresh) for the panel to sit on.
+  virtual void paintUnderLightPanel() {}
+  // Up+Down under the touch lock: open the light panel together with this
+  // screen's own menu (the reader's toolbar). True if it did.
+  virtual bool openLightPanelWithMenu(bool /*pageTurnUndone*/) { return false; }
   // Start a dictionary word selection (reader only). Returns true if started.
   virtual bool startDictionaryLookup() { return false; }
   virtual bool isHomeActivity() const { return false; }

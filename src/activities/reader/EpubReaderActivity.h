@@ -196,8 +196,21 @@ class EpubReaderActivity final : public ReaderActivity {
   void openReaderMenu();
   // Toolbar reader menu (see Overlay above).
   bool usesToolbarMenu() const;
-  void openOverlay(Overlay target);
+  // Toolbar tool index -> its panel.
+  static Overlay toolOverlay(const int tool) {
+    return tool == 0 ? Overlay::Contents : (tool == 1 ? Overlay::Text : Overlay::More);
+  }
+  // Sets up the overlay state for target, paints nothing. Returns the overlay it replaced.
+  Overlay setOverlayState(Overlay target);
+  // Clears the overlay state, paints nothing.
+  void dropOverlayState();
+  // refresh = false: paint the chrome only (the light panel's refresh shows it).
+  void openOverlay(Overlay target, bool refresh = true);
   void closeOverlayToPage();
+  // Toolbar chapter jumps (buttons, scrub); the overlay stays up.
+  void jumpToSpine(int target);
+  int scrubSpine(int permille) const;
+  void onLightPanelWithMenuClosed(const ActivityResult& result);
   void discardOverlayPage();
   void handleOverlayInput();
   void renderOverlay();
@@ -256,6 +269,14 @@ class EpubReaderActivity final : public ReaderActivity {
   bool quietRepaintPass = false;
   // Same, for the loop task: a remote turn arriving now is queued, not refused.
   std::atomic<bool> quietRepaintRunning{false};
+  // Loop -> render task: the next render paints the page (and an open toolbar)
+  // into the frame without a refresh, for the light panel to draw over.
+  std::atomic<bool> paintOnlyRequested{false};
+  // Set by render() for that render; read by renderBook()/renderContents().
+  bool paintOnlyPass = false;
+  // withToolbar: open the toolbar for that paint. cleanRefresh: the next
+  // refresh (the light panel's) is HALF, for a page that changed under it.
+  void paintPageWithoutRefresh(bool withToolbar, bool cleanRefresh);
   bool pageStillShown() const;
   // Anything drawn over the page that a quiet repaint would erase or paint under.
   bool pageObscured() const;
@@ -316,6 +337,8 @@ class EpubReaderActivity final : public ReaderActivity {
 
   bool pageTurn(bool isForward) override;
   bool undoRecentButtonPageTurn(unsigned long windowMs) override;
+  void paintUnderLightPanel() override;
+  bool openLightPanelWithMenu(bool pageTurnUndone) override;
   bool startDictionaryLookup() override;
   bool skipPages(int amount) override;
   bool remoteShortcut(bool readerMenu) override;

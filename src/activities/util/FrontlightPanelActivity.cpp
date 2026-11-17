@@ -309,6 +309,12 @@ void FrontlightPanelActivity::loop() {
     // measured the layout — so at 0 that release read as "tapped below the
     // sheet" and closed it again before it was ever drawn.
     if (touch.snap.touchReleased && !draggingSlider && panelBottom > 0 && touch.snap.touchY >= panelBottom) {
+      if (tapsBelowPassed) {
+        ScreenTapResult tap;
+        tap.x = touch.snap.touchX;
+        tap.y = touch.snap.touchY;
+        setResult(ActivityResult{tap});
+      }
       close();
       return;
     }

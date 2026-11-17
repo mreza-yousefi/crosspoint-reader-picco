@@ -225,9 +225,9 @@ bool recoverIncompleteRecord(HalFile& file) {
 }
 }  // namespace
 
-bool VocabularyStore::append(const VocabularyContext& context, const std::string& word, const std::string& headword,
-                             const std::string& definition, const bool htmlDefinition) {
-  if (word.empty() || definition.empty()) return false;
+bool VocabularyStore::prepareDefinition(const std::string& definition, const bool htmlDefinition,
+                                        VocabularyDefinition& out) {
+  if (definition.empty()) return false;
 
   std::string plain;
   const std::string* exportedDefinition = &definition;
@@ -256,6 +256,32 @@ bool VocabularyStore::append(const VocabularyContext& context, const std::string
     if (!visible) return false;
     exportedDefinition = &plain;
   }
+
+  const auto& text = *exportedDefinition;
+  size_t definitionBytes = std::min(text.size(), MAX_DEFINITION_BYTES);
+  if (definitionBytes < text.size()) definitionBytes = utf8SafeTruncateBuffer(text.data(), definitionBytes);
+  out.truncated = sourceTruncated || definitionBytes < text.size();
+  if (definitionBytes < text.size() && definitionBytes > 0) {
+    const size_t lastLine = text.rfind('\n', definitionBytes - 1);
+    if (lastLine != std::string::npos && lastLine >= definitionBytes / 2) {
+      definitionBytes = lastLine;
+    } else {
+      const size_t lastSpace = text.find_last_of(" \t\r", definitionBytes - 1);
+      if (lastSpace != std::string::npos && lastSpace >= definitionBytes / 2) definitionBytes = lastSpace;
+    }
+  }
+  const auto heap = HalMemory::getDefaultHeap();
+  if (heap.largestBlockBytes < definitionBytes + 1 || heap.freeBytes < definitionBytes + 8 * 1024) {
+    LOG_ERR("VOCAB", "Not enough memory to keep the definition");
+    return false;
+  }
+  out.text.assign(text, 0, definitionBytes);
+  return true;
+}
+
+bool VocabularyStore::append(const VocabularyContext& context, const std::string& word, const std::string& headword,
+                             const VocabularyDefinition& definition) {
+  if (word.empty() || definition.text.empty()) return false;
 
   HalFile file = Storage.open(FILE_PATH, O_RDWR | O_CREAT | O_AT_END);
   if (!file) {
@@ -287,20 +313,8 @@ bool VocabularyStore::append(const VocabularyContext& context, const std::string
   record.raw(",\"headword\":");
   record.quoted(headword, MAX_WORD_BYTES);
   record.raw(",\"definition\":");
-  const auto& text = *exportedDefinition;
-  size_t definitionBytes = std::min(text.size(), MAX_DEFINITION_BYTES);
-  if (definitionBytes < text.size()) definitionBytes = utf8SafeTruncateBuffer(text.data(), definitionBytes);
-  bool definitionTruncated = sourceTruncated || definitionBytes < text.size();
-  if (definitionBytes < text.size() && definitionBytes > 0) {
-    const size_t lastLine = text.rfind('\n', definitionBytes - 1);
-    if (lastLine != std::string::npos && lastLine >= definitionBytes / 2) {
-      definitionBytes = lastLine;
-    } else {
-      const size_t lastSpace = text.find_last_of(" \t\r", definitionBytes - 1);
-      if (lastSpace != std::string::npos && lastSpace >= definitionBytes / 2) definitionBytes = lastSpace;
-    }
-  }
-  if (record.quoted(text, MAX_DEFINITION_BYTES, definitionBytes)) definitionTruncated = true;
+  bool definitionTruncated = definition.truncated;
+  if (record.quoted(definition.text, MAX_DEFINITION_BYTES)) definitionTruncated = true;
   record.raw(",\"definition_truncated\":");
   record.raw(definitionTruncated ? "true" : "false");
   record.raw(",\"title\":");

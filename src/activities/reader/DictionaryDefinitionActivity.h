@@ -4,7 +4,9 @@
 #include <I18n.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,9 +29,13 @@ class DictionaryDefinitionActivity final : public Activity {
         htmlDefinition(htmlDefinition) {}
 
   bool enableLookup(Dictionary& dictionary, std::string&& query);
+  // Runs once from loop() when the first definition has been on screen for
+  // LOOKUP_MIN_VISIBLE_MS (a quicker close was a mistaken lookup).
+  void onShownLongEnough(std::function<void()> callback) { shownCallback = std::move(callback); }
 
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override;
   void loop() override;
   void render(RenderLock&&) override;
 
@@ -122,4 +128,8 @@ class DictionaryDefinitionActivity final : public Activity {
   bool messageVisible = false;
   bool initialLayoutFailed = false;
   ButtonNavigator buttonNavigator;
+  std::function<void()> shownCallback;
+  void recordIfShownLongEnough();
+  // millis() when the first definition reached the screen (render task), 0 = not yet.
+  std::atomic<unsigned long> firstShownMs{0};
 };

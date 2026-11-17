@@ -576,7 +576,9 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   }
 
   // Already-bold text should stay fully bold; focus splitting would make its suffix regular later.
-  if (!this->focusReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
+  // Arabic-script words stay whole: a bold prefix would break the joining of their letters.
+  if (!this->focusReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0 ||
+      utf8ContainsArabicScriptLetter(word.c_str())) {
     if (auto breakOffsets = explicitHyphenBreakByteOffsets(word, effectiveAttachToPrevious); !breakOffsets.empty()) {
       ensureTokenCapacity(breakOffsets.size() + 1);
       bool firstToken = true;

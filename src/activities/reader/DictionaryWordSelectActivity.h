@@ -12,8 +12,8 @@
 
 // Controller for dictionary lookup: renders the background page, runs the
 // lookup against the active StarDict dictionary, and either opens
-// DictionaryDefinitionActivity or displays a status popup (Looking up,
-// Indexing, Not found, Error).
+// DictionaryDefinitionActivity or displays a status popup (Indexing, Error),
+// or "Not Found" with Another word / Close.
 class DictionaryWordSelectActivity final : public Activity {
  public:
   explicit DictionaryWordSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -34,6 +34,23 @@ class DictionaryWordSelectActivity final : public Activity {
   enum class Popup : uint8_t { None, Busy, NotFound, Error };
 
   void performLookup();
+  // Vocabulary history and the stats' lookup count, once the definition has
+  // stayed on screen (LookupRecordGate.h).
+  void recordLookup();
+  void dropLookupRecord();
+
+  // "Not Found" card over the page: 0 = Another word, 1 = Close, -1 = the card.
+  struct Box {
+    int x;
+    int y;
+    int width;
+    int height;
+  };
+  Box notFoundBox(int part) const;
+  void drawNotFound() const;
+  void drawNotFoundButton(int index, bool pressed) const;
+  void handleNotFoundInput();
+  void closeNotFound(int index, bool showPressed);
 
   std::unique_ptr<Page> page;
   const int marginLeft;
@@ -50,6 +67,12 @@ class DictionaryWordSelectActivity final : public Activity {
   bool dictOpenAttempted = false;
   bool dictOpenOk = false;
   bool dictNeedsIndex = false;
+
+  // Saved form of a found definition, kept until recordLookup().
+  bool recordVocabulary = false;
+  std::string recordWord;
+  std::string recordHeadword;
+  VocabularyDefinition recordDefinition;
 
   Popup popup = Popup::None;
   StrId popupMsg = StrId::STR_DICT_NOT_FOUND;

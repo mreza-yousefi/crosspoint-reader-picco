@@ -9,14 +9,14 @@ Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
 |---|---|
 | Full touch lock | Each switch move toggles it (position does not matter); all touch ignored, side buttons work; kept through sleep |
 | Lock from the light panel | Touch tile (pointer) toggles the lock; locking closes the panel |
-| Lock indicator | Padlock centred in the top bar and in the top page margin (top-right corner when the margin is too small); open while overridden |
-| Light panel under the lock | Up + Down together (touch works inside the panel) |
+| Lock indicator | Padlock centred in the top bar and in the top page margin (top-right corner when the margin is too small); open while overridden (from Home, or in a book while the toolbar opened with Up + Down has touch) |
+| Light panel under the lock | Up + Down together (touch works inside the panel); in a book (EPUB, TXT, Markdown, Toolbar menu style) the reader toolbar opens at the bottom with it, so the menus can be reached: tap the Contents, Text or More icon to close the panel and open that item, touch stays on until the page is back; closing the panel (Up + Down, Back, a tap on the page) closes both |
 | Refresh under the lock | Power + Up together |
 | Change book under the lock | Up + Down, then the house icon in the light panel goes to Home; pick a book with the buttons |
-| Dictionary under the lock | Hold Up 0.4 s on a book page, tap a word: definition at once (no menu); Down backs out; short Up turns back on release |
+| Dictionary under the lock | Hold Up 0.4 s on a book page, tap a word: definition at once (no menu); Down backs out (also from "Not Found"); short Up turns back on release |
 | Unlock from Home | Hold Up 0.4 s on Home; ends on opening a book, holding Down, moving the switch, sleep, 2 min idle |
 | Wake status | Waking into a book: light panel with "Touch locked · light check - tap below to read"; waking to Home: "Touch locked" note |
-| Shortcut safety | A shortcut's buttons never also turn a page; a page turned by a not-quite-simultaneous press is undone; no sleep while a shortcut is held |
+| Shortcut safety | A shortcut's buttons never also turn a page; a page turned by a not-quite-simultaneous press is undone, before the light panel opens (the page under the panel is the one you were on); no sleep while a shortcut is held |
 
 ## Dictionary
 Details: [docs/dictionary.md](dictionary.md).
@@ -24,8 +24,10 @@ Details: [docs/dictionary.md](dictionary.md).
 - Definition sheet over the lower 60% of the screen, with the book page visible above; swipe or side buttons page, tap above closes.
 - Dictionary-mode menu: Look Up / Another word / + (then Clip / Bookmark / <). Under the lock no menu: the word is looked up on release, and the definition offers Another word / + above the sheet.
 - Less sensitive word selection in dictionary mode; returns to the book after a lookup.
+- A word not found shows "Not Found" with **Another word** (back to word selection on the same page) and **Close** (back to the book); also Confirm / Back, and Down under the lock.
 - Same large buttons in every selection menu; Look Up turns black with "Looking Up..." while it works.
 - One clean refresh when the definition sheet appears, and one when "Not Found" closes.
+- Mistaken lookups are not kept: a lookup is saved to the vocabulary history and counted in the reading stats only once its definition has been on screen for 1 s (`LOOKUP_MIN_VISIBLE_MS`). Words not found are never recorded.
 - The light panel can open over the definition sheet; closing it puts back the page above the sheet.
 - Lookup history: upstream Vocabulary History (`/Vocabulary.txt`), on by default in this fork (replaces the earlier `/vocabulary/lookups.tsv`).
 - Persian definitions: add Persian glyphs to your reading font with `scripts/merge_persian_font.py`.
@@ -62,6 +64,7 @@ Details: [USER_GUIDE.md section 3.6.2](../USER_GUIDE.md#362-reader).
 - Book position (EPUB, TXT, Markdown) in paper pages, `p. page/total`, in the right corner of the status bar; chapter page and percentage moved to the left corner, before battery and clock (also in XTC books). A paper page is 1,800 characters of the book's text (like a typical paperback; may differ from a specific printed edition), whitespace runs counted once, so the number does not depend on font, size, margins or orientation. The text of each spine item is counted once per book in idle loop frames, one item per frame, and saved as `paper_pages.bin` in the book cache after each item, so a count stopped by sleep or closing the book goes on from there. A button press, or a touch on the BOOX Picco, stops the item being counted at once; it starts over in a later idle frame. Counting pauses while a menu or panel is open, while the Bluetooth page turner holds its heap, and while a chapter builds. The position appears a few seconds after the first time it can show in a book. The current page uses the page's exact text offset in the chapter. Shown with Book Progress Percentage on; see [USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display).
 - Space Above Status Bar / Space Below Clock/Battery (Customise Status Bar; None/Small/Medium/Large = 0/8/16/32 px; defaults Small/None) add space between the page text and the bottom status bar, and between the top-margin battery/clock line and the text (EPUB, TXT, Markdown). The bottom space applies when a line is drawn at the bottom (an item that stays in the bottom bar, or the automatic page turn line); the top space when battery or clock is shown in the top margin. The page viewport is smaller, so section caches rebuild (viewport height is in the section header): after updating, each book lays its chapters out once again on first open. Paper pages are unaffected. The space is added to the upstream spacing: the bottom of the text keeps the screen margin plus the status bar height (upstream changed this from the larger of the two).
 - Status-bar clock (EPUB, TXT, Markdown) repaints at each new minute with one fast refresh: no gray pass, no step towards the periodic clean refresh. Not during automatic page turn, with a menu, panel, popup or message over the page, or on UC8279 absolute-gray image pages ([USER_GUIDE.md section 3.6.1](../USER_GUIDE.md#361-display)).
+- Focus Reading leaves Arabic-script words (Persian, Arabic, Urdu) without the bold start, which would break the joining of their letters; other words keep it (book pages and the definition sheet). The section cache version changed, so each book lays its chapters out once again on first open.
 - The RTC is set at each SNTP sync and from the Home Backup server's `Date` header after a run that ends Ok or Partial.
 
 ## Reading statistics

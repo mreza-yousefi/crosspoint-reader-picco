@@ -129,6 +129,7 @@ void ActivityManager::loop() {
   if (currentActivity) {
     // Resume a touch lock paused for a dictionary lookup before any gesture is
     // read: once the book is back in front, or when the reader was left.
+    if (!isReaderActivity()) readerMenuPausesTouchLock = false;
     if (lookupPausesTouchLock) {
       if (!isReaderActivity()) {
         lookupPausesTouchLock = false;
@@ -203,10 +204,12 @@ void ActivityManager::loop() {
       }
       return;
     }
+    bool pageTurnUndone = false;
     if (mappedInput.wasSideButtonChord() || mappedInput.wasPowerUpChord()) {
       // The window counts to when the chord formed, not to now: a Power+Up
       // refresh runs first and takes ~0.5 s.
-      currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS + mappedInput.msSinceChordFormed());
+      pageTurnUndone =
+          currentActivity->undoRecentButtonPageTurn(CHORD_UNDO_WINDOW_MS + mappedInput.msSinceChordFormed());
     }
     // Under the touch lock the swipe is ignored, so Up+Down together opens it
     // instead; the open panel pauses the lock (see lightPanelPausesTouchLock).
@@ -216,6 +219,10 @@ void ActivityManager::loop() {
       // The finger lift must not also tap the panel.
       if (statusBarHold) mappedInput.suppressScreenTouch();
       haptic_feedback::touchAction();
+      // In a book the reader's toolbar opens with it, so the menus can be reached.
+      if (sideChord && currentActivity->openLightPanelWithMenu(pageTurnUndone)) return;
+      // The panel's refresh then shows the page the chord turned back to.
+      if (pageTurnUndone) currentActivity->paintUnderLightPanel();
       auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInput);
       // The definition sheet repaints only itself, not the page above it.
       if (currentActivity->name == "DictionaryDefinition") {

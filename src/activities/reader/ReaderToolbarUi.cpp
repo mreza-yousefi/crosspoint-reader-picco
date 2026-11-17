@@ -76,6 +76,19 @@ ReaderToolbarUi::Routed ReaderToolbarUi::route(const MappedInputManager& input) 
   return pending_;
 }
 
+ReaderToolbarUi::Routed ReaderToolbarUi::routeTap(const int x, const int y) {
+  pending_ = Routed{};
+  fui::InputSnapshot snap{};
+  snap.touchReleased = true;
+  snap.touchX = static_cast<int16_t>(x);
+  snap.touchY = static_cast<int16_t>(y);
+  pending_.routed = routingReady();
+  pending_.x = x;
+  pending_.y = y;
+  UiAppHost::route(snap);
+  return pending_;
+}
+
 void ReaderToolbarUi::onAction(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<ReaderToolbarUi*>(user);
   Routed& out = self->pending_;

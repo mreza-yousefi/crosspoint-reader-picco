@@ -20,6 +20,10 @@ inline bool lightPanelPausesTouchLock = false;
 // Set while an Up hold dictionary lookup runs under the lock (word
 // selection and definitions); cleared when the reader is back in front.
 inline bool lookupPausesTouchLock = false;
+// Set while the reader's toolbar (opened with the light panel by Up+Down under
+// the lock), its panels and the screens they open are up; cleared when the
+// page is back (EpubReaderActivity) or the reader was left (ActivityManager).
+inline bool readerMenuPausesTouchLock = false;
 // Touch-lock override: holding Up on Home unlocks touch for a while. Ends when
 // a book opens, on a Down hold, on a switch move (main.cpp), at sleep, or after
 // 2 minutes without use (ActivityManager).
@@ -46,5 +50,6 @@ inline void toggleTouchLock() {
 }
 
 inline bool slideSwitchLocksTouch() {
-  return slideSwitchTouchLockEngaged() && !lightPanelPausesTouchLock && !lookupPausesTouchLock && !touchLockOverride;
+  return slideSwitchTouchLockEngaged() && !lightPanelPausesTouchLock && !lookupPausesTouchLock &&
+         !readerMenuPausesTouchLock && !touchLockOverride;
 }

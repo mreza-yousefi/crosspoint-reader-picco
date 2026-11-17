@@ -67,6 +67,8 @@ class ReaderToolbarUi : public UiAppHost {
   void render();
   // Route one loop-task input frame; returns the action it mapped to, if any.
   Routed route(const MappedInputManager& input);
+  // Route a tap another screen received at (x, y) (the light panel over the toolbar).
+  Routed routeTap(int x, int y);
 
   // Panel list selection/viewport, shared with the reader's input handling.
   // The same fui::ListNav the list-menu screens use: scrollBy() pages the

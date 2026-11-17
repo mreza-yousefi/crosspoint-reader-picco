@@ -13,7 +13,8 @@ class MappedInputManager;
 // Menu Style -> Toolbar), painted over the page that is already on screen:
 //
 //  - Toolbar: a bottom sheet holding a chapter scrub row (< capsule >) and a
-//    Contents / Text / More tile row; the page above it stays untouched.
+//    Contents / Text / More tile row, flanked by history Back / Forward when
+//    they can act; the page above it stays untouched.
 //  - Panel: a taller bottom sheet with a title, a paged row list (name left,
 //    value right) and the same tile row as a switcher.
 //
@@ -24,7 +25,20 @@ class MappedInputManager;
 // clears the screen: the page stays visible around the chrome.
 class ReaderToolbarUi : public UiAppHost {
  public:
-  enum class Event { None = 0, Dismiss = 1, Tool = 2, PrevChapter = 3, NextChapter = 4, Scrub = 5, Row = 6 };
+  enum class Event {
+    None = 0,
+    Dismiss = 1,
+    Tool = 2,
+    PrevChapter = 3,
+    NextChapter = 4,
+    Scrub = 5,
+    Row = 6,
+    HistoryBack = 7,
+    HistoryForward = 8
+  };
+  // Focus indices of the toolbar's history buttons (activeTool); 0..2 stay Contents / Text / More.
+  static constexpr int TOOL_HISTORY_BACK = 3;
+  static constexpr int TOOL_HISTORY_FORWARD = 4;
 
   struct Model {
     bool panel = false;  // false = toolbar, true = a Contents/Text/More panel
@@ -40,8 +54,14 @@ class ReaderToolbarUi : public UiAppHost {
     std::function<std::string(int)> rowValue;
     void (*rowCheckbox)(void* ctx, int index, freeink::ui::ListItem& item) = nullptr;
     void* rowCheckboxContext = nullptr;
-    // Tile row: the tool in focus (toolbar) / the open panel (panel). 0..2.
+    // Tile row: the tool in focus (toolbar) / the open panel (panel). 0..2, or a
+    // TOOL_HISTORY_* button (toolbar); -1 = none.
     int activeTool = 0;
+    // History Back / Forward can act: the toolbar shows their buttons at the row's
+    // ends. Their slots are always there (empty when unavailable, and in panels), so
+    // the tools do not move.
+    bool historyBack = false;
+    bool historyForward = false;
     // Button boards keep the theme's denser list row height (as every other
     // list does there); touch boards use FreeInkUI's finger-sized rows.
     bool denseRows = false;
@@ -49,7 +69,7 @@ class ReaderToolbarUi : public UiAppHost {
 
   struct Routed {
     Event event = Event::None;
-    int value = 0;        // Tool: tool index; Row: row index
+    int value = 0;        // Tool: tool index (0..2); Row: row index
     int permille = -1;    // Scrub: 0..1000 along the track
     bool routed = false;  // the gate was open and a touch frame was routed
     int x = 0;            // touch position of the routed frame (logical px)

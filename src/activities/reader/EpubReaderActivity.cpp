@@ -3135,6 +3135,34 @@ void EpubReaderActivity::closeOverlayToPage() {
   requestUpdate();  // redraw the clean page
 }
 
+void EpubReaderActivity::toolbarHistory(const bool back) {
+  readerMenuPausesTouchLock = false;
+  {
+    // The render task may be drawing the toolbar and shares the framebuffer.
+    RenderLock lock;
+    dropOverlayState();
+    discardOverlayPage();
+  }
+  if (back) {
+    historyBack();
+  } else {
+    historyForward();
+  }
+  requestUpdate();  // the page, also when there was nothing to go to
+}
+
+int EpubReaderActivity::steppedToolFocus(const int direction) const {
+  int order[5];
+  int count = 0;
+  if (historyAvailable(true)) order[count++] = ReaderToolbarUi::TOOL_HISTORY_BACK;
+  for (int tool = 0; tool < 3; ++tool) order[count++] = tool;
+  if (historyAvailable(false)) order[count++] = ReaderToolbarUi::TOOL_HISTORY_FORWARD;
+  int at = 0;
+  while (at < count && order[at] != focusedTool) ++at;
+  if (at == count) return 0;
+  return order[(at + direction + count) % count];
+}
+
 // Jump to another spine item (chapter scrub). The overlay stays up and is
 // re-drawn over the new page by renderBook().
 void EpubReaderActivity::jumpToSpine(int target) {
@@ -3242,6 +3270,11 @@ void EpubReaderActivity::onLightPanelWithMenuClosed(const ActivityResult& result
     case ReaderToolbarUi::Event::Scrub:
       jumpToSpine(scrubSpine(routed.permille));
       break;
+    case ReaderToolbarUi::Event::HistoryBack:
+    case ReaderToolbarUi::Event::HistoryForward:
+      // The toolbar closes with the jump, so the lock is back.
+      toolbarHistory(routed.event == ReaderToolbarUi::Event::HistoryBack);
+      return;
     case ReaderToolbarUi::Event::None:
       // A tap on the toolbar's empty space keeps it open, as in the toolbar menu.
       if (routed.routed) break;
@@ -3264,7 +3297,12 @@ void EpubReaderActivity::renderOverlay() {
   // The toolbar's tool pill is the button-navigation cursor: tap-first (same
   // convention as the panel lists), it only shows once a button has moved it.
   // Panels override below: there the pill marks the open panel on every board.
+  // A chapter skip can hide the history button in focus: move to the nearest tool.
+  if (focusedTool == ReaderToolbarUi::TOOL_HISTORY_BACK && !historyAvailable(true)) focusedTool = 0;
+  if (focusedTool == ReaderToolbarUi::TOOL_HISTORY_FORWARD && !historyAvailable(false)) focusedTool = 2;
   model.activeTool = (overlay == Overlay::Toolbar && !panelCursorShown) ? -1 : focusedTool;
+  model.historyBack = historyAvailable(true);
+  model.historyForward = historyAvailable(false);
   // Strings the model points at live here until render() returns.
   std::string chapterTitle, pageInfo;
 
@@ -3383,6 +3421,10 @@ void EpubReaderActivity::handleOverlayInput() {
       case ReaderToolbarUi::Event::Scrub:
         jumpToSpine(scrubSpine(routed.permille));
         return;
+      case ReaderToolbarUi::Event::HistoryBack:
+      case ReaderToolbarUi::Event::HistoryForward:
+        toolbarHistory(routed.event == ReaderToolbarUi::Event::HistoryBack);
+        return;
       default:
         break;
     }
@@ -3392,19 +3434,23 @@ void EpubReaderActivity::handleOverlayInput() {
       closeOverlayToPage();
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      focusedTool = (focusedTool + 2) % 3;
-      panelCursorShown = true;
-      fastRedraw();
-      return;
-    }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-      focusedTool = (focusedTool + 1) % 3;
+    const bool left = mappedInput.wasReleased(MappedInputManager::Button::Left);
+    if (left || mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+      focusedTool = steppedToolFocus(left ? -1 : 1);
       panelCursorShown = true;
       fastRedraw();
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      if (focusedTool == ReaderToolbarUi::TOOL_HISTORY_BACK || focusedTool == ReaderToolbarUi::TOOL_HISTORY_FORWARD) {
+        const bool back = focusedTool == ReaderToolbarUi::TOOL_HISTORY_BACK;
+        if (historyAvailable(back)) {
+          toolbarHistory(back);
+        } else {
+          fastRedraw();  // nothing to go to: the toolbar stays, focus moves to a tool
+        }
+        return;
+      }
       openOverlay(toolOverlay(focusedTool));
       return;
     }
@@ -3629,11 +3675,13 @@ void EpubReaderActivity::applyReaderTextSettings() {
 }
 
 // The More panel carries everything the classic list menu offers except the
-// two entries that have their own tool (chapters -> Contents, text -> Text).
+// entries with their own toolbar button (chapters -> Contents, text -> Text,
+// history Back / Forward).
 void EpubReaderActivity::buildMoreActions() {
   using MA = EpubReaderMenuActivity::MenuAction;
   EpubReaderMenuActivity::buildMenuItems(moreItems, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
-                                         CLIPPINGS.hasClippings(), historyAvailable(true), historyAvailable(false));
+                                         CLIPPINGS.hasClippings(), /*hasBack=*/false,
+                                         /*hasForward=*/false);
   moreItems.erase(std::remove_if(moreItems.begin(), moreItems.end(),
                                  [](const auto& item) {
                                    return item.action == MA::SELECT_CHAPTER || item.action == MA::TEXT_SETTINGS;
@@ -3658,10 +3706,6 @@ std::string EpubReaderActivity::moreRowValue(int row) const {
       return (autoTurnOption == 0 || autoTurnOption >= static_cast<int>(std::size(PAGE_TURN_RATES)))
                  ? std::string(tr(STR_STATE_OFF))
                  : std::to_string(PAGE_TURN_RATES[autoTurnOption]);
-    case MA::HISTORY_BACK:
-      return historyAvailable(true) ? std::to_string(history.backTarget().percent) + "%" : "";
-    case MA::HISTORY_FORWARD:
-      return historyAvailable(false) ? std::to_string(history.forwardTarget().percent) + "%" : "";
     default:
       return "";
   }

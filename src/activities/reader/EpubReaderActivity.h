@@ -79,8 +79,9 @@ class EpubReaderActivity final : public ReaderActivity {
   // Toolbar; its tools open the Contents/Text/More bottom-sheet panels.
   enum class Overlay { None, Toolbar, Contents, Text, More };
   Overlay overlay = Overlay::None;
-  int focusedTool = 0;  // toolbar tool focus: 0=Contents, 1=Text, 2=More
-  int panelIndex = 0;   // selected row within the active panel
+  // Toolbar tool focus: 0=Contents, 1=Text, 2=More, or ReaderToolbarUi::TOOL_HISTORY_*.
+  int focusedTool = 0;
+  int panelIndex = 0;  // selected row within the active panel
   // Panel list navigation: a tap steps one row, a hold jumps PANEL_HOLD_STEP rows in one go
   // (a contents list runs to hundreds of chapters). One jump per hold, not a repeat -- every
   // step repaints the panel, so repeating is bounded by the e-ink refresh anyway and reads as
@@ -222,6 +223,10 @@ class EpubReaderActivity final : public ReaderActivity {
   // refresh = false: paint the chrome only (the light panel's refresh shows it).
   void openOverlay(Overlay target, bool refresh = true);
   void closeOverlayToPage();
+  // Toolbar history button: closes the overlay, then goes back (or forward).
+  void toolbarHistory(bool back);
+  // Next toolbar focus to the left (-1) or right (+1), in the order the buttons are drawn.
+  int steppedToolFocus(int direction) const;
   // Toolbar chapter jumps (buttons, scrub); the overlay stays up.
   void jumpToSpine(int target);
   int scrubSpine(int permille) const;

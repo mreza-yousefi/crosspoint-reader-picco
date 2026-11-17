@@ -3,6 +3,7 @@
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Logging.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -16,11 +17,12 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr fui::ActionId ACTION_DISMISS = 1;  // tap anywhere on the page above the sheet
-constexpr fui::ActionId ACTION_TOOL = 2;     // value = 0 Contents, 1 Text, 2 More
+constexpr fui::ActionId ACTION_TOOL = 2;     // value = 0 Contents, 1 Text, 2 More, TOOL_HISTORY_*
 constexpr fui::ActionId ACTION_PREV = 3;     // scrub row: previous chapter
 constexpr fui::ActionId ACTION_NEXT = 4;     // scrub row: next chapter
 constexpr fui::ActionId ACTION_SCRUB = 5;    // progress track: dragPermille along the book
 constexpr fui::ActionId ACTION_ROW = 6;      // panel list row, value = row index
+// UiApp holds 6 action handlers: the history buttons are ACTION_TOOL with a TOOL_HISTORY_* value.
 
 // Scrub row: two small round-cornered chapter buttons flanking a thin progress
 // track with a round knob -- the reading page's chrome is light, so the
@@ -33,6 +35,9 @@ constexpr int16_t kScrubGap = 12;     // air between the buttons and the track
 constexpr int16_t kToolRowH = 80;
 constexpr int16_t kToolPillInset = 10;
 constexpr int kToolCount = 3;
+// The row also holds history Back (left) and Forward (right), so five slots; an
+// unavailable one stays empty and the tools never move.
+constexpr int kToolSlots = kToolCount + 2;
 // Bottom sheet height for the panels. ListNav fits whole rows in the remaining
 // list area; any spare pixels stay between the list and the switcher.
 constexpr int kPanelHeightPercent = 62;
@@ -51,6 +56,7 @@ void ReaderToolbarUi::begin() {
   for (fui::ActionId id = ACTION_DISMISS; id <= ACTION_ROW; ++id) {
     app.on(id, &ReaderToolbarUi::onAction, this);
   }
+  if (app.handlerOverflowed()) LOG_ERR("TOOLBAR", "Action handler table full: some taps are dropped");
   app.setScreen(&ReaderToolbarUi::screenFn, this);
 }
 
@@ -95,6 +101,8 @@ void ReaderToolbarUi::onAction(const fui::ActionEvent& event, void* user) {
   out.value = event.value;
   out.permille = event.dragPermille;
   if (event.action >= ACTION_DISMISS && event.action <= ACTION_ROW) out.event = static_cast<Event>(event.action);
+  if (out.event == Event::Tool && event.value == TOOL_HISTORY_BACK) out.event = Event::HistoryBack;
+  if (out.event == Event::Tool && event.value == TOOL_HISTORY_FORWARD) out.event = Event::HistoryForward;
   if (out.event == Event::Scrub && event.dragPermille < 0) out.event = Event::None;
   // A handled action repaints through the reader's own fast path, not through
   // app.invalidate(): the page underneath is the reader's to draw.
@@ -110,7 +118,8 @@ void ReaderToolbarUi::screenFn(UiScreen& screen, void* user) {
   }
 }
 
-// The Contents / Text / More row: three equal slots, an icon centred in each,
+// The Contents / Text / More row, with history Back / Forward at its ends when
+// they can act: five equal slots, an icon centred in each,
 // the active one inside an outline pill (the theme's control radius). Each
 // slot is registered as one tap target, so the row stays light (no filled
 // tiles, no labels -- the glyphs carry the meaning).
@@ -124,20 +133,36 @@ void ReaderToolbarUi::buildToolRow(UiScreen& screen, const fui::LayoutAnchor anc
   // must land on the same x either way, or the icons jump when a tap swaps
   // the toolbar for a panel.
   const fui::Rect row = screen.take(anchor, kToolRowH).inset(fui::Insets{0, sideInset, 0, sideInset});
-  const int16_t slotW = static_cast<int16_t>(row.width / kToolCount);
   // Theme radius as-is (the frontlight panel pattern); the fill clamps to
   // the shape's own height so round themes cannot overshoot.
   const uint8_t pillRadius = tokens.controlRadius;
-  for (int i = 0; i < kToolCount; ++i) {
-    const fui::Rect slot{static_cast<int16_t>(row.x + slotW * i), row.y, slotW, row.height};
-    if (i == model_.activeTool) {
+  const auto drawSlot = [&](const int slotIndex, const fui::BitmapRef& icon, const bool focused,
+                            const fui::ActionId action, const int16_t value) {
+    // Edges at width * i / slots, so the remainder spreads over the row.
+    const auto edge = [&](const int i) { return static_cast<int16_t>(row.x + row.width * i / kToolSlots); };
+    const fui::Rect slot{edge(slotIndex), row.y, static_cast<int16_t>(edge(slotIndex + 1) - edge(slotIndex)),
+                         row.height};
+    if (focused) {
       screen.target().stroke(slot.inset(fui::Insets{4, kToolPillInset, 4, kToolPillInset}),
                              fui::Paint::solid(fui::Color::Black), 2, pillRadius);
     }
     const fui::Rect iconRect{static_cast<int16_t>(slot.x + (slot.width - 24) / 2),
                              static_cast<int16_t>(slot.y + (slot.height - 24) / 2), 24, 24};
-    screen.target().bitmap(iconRect, icons[i], fui::BitmapMode::Center);
-    screen.frame().hit(slot, ACTION_TOOL, static_cast<int16_t>(i), fui::InputTouch);
+    screen.target().bitmap(iconRect, icon, fui::BitmapMode::Center);
+    screen.frame().hit(slot, action, value, fui::InputTouch);
+  };
+  for (int i = 0; i < kToolCount; ++i) {
+    drawSlot(1 + i, icons[i], i == model_.activeTool, ACTION_TOOL, static_cast<int16_t>(i));
+  }
+  // The history buttons belong to the toolbar; a panel leaves their slots empty.
+  if (model_.panel) return;
+  if (model_.historyBack) {
+    drawSlot(0, fui::bitmapFromIcon(icon_reader_history_back_24), model_.activeTool == TOOL_HISTORY_BACK, ACTION_TOOL,
+             TOOL_HISTORY_BACK);
+  }
+  if (model_.historyForward) {
+    drawSlot(kToolSlots - 1, fui::bitmapFromIcon(icon_reader_history_forward_24),
+             model_.activeTool == TOOL_HISTORY_FORWARD, ACTION_TOOL, TOOL_HISTORY_FORWARD);
   }
 }
 

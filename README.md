@@ -18,7 +18,9 @@ Details: [User Guide, Controls](USER_GUIDE.md#363-controls).
   side buttons still turn pages, and the lock stays on through sleep.
 - In the light panel, the touch tile (pointer icon) turns the lock on or off. Locking closes the panel.
 - A padlock shows the lock in the top bar and at the top of the book page.
-- Up + Down opens the light panel while touch is locked. Its Home button lets you change the book.
+- Up + Down opens the light panel while touch is locked. Its Home button lets you change the book. In a book (EPUB,
+  TXT, Markdown; **Reader Menu Style** set to Toolbar), the reader toolbar opens with it, so Contents, Text, More and the jump
+  history can be reached by touch.
 - Power + Up gives a full screen refresh while touch is locked.
 - Hold Up on Home to unlock touch. The lock comes back when you open a book, hold Down, move the switch, or leave
   the reader unused for 2 minutes.
@@ -32,6 +34,8 @@ Details: [docs/dictionary.md](docs/dictionary.md#the-definition-screen).
 - Definitions open as a sheet over the lower part of the screen. The book page stays visible above it.
 - With touch locked, hold Up on a book page and tap a word. The definition opens at once, without a menu.
 - The selection menu is simpler: Look Up, Another word and +. After a lookup, the reader goes back to the book.
+- When a word is not found, "Not Found" offers **Another word** (pick another word on the same page) and **Close**
+  (back to the book).
 - Each lookup is added to `/Vocabulary.txt` (upstream Vocabulary History, on by default in this fork).
 - Persian definitions: add Persian letters to your reading font with a script
   ([how](docs/dictionary.md#persian-and-other-arabic-script-definitions)).
@@ -65,6 +69,12 @@ Details: [User Guide, Reader](USER_GUIDE.md#362-reader).
 - Per-book Text Settings (EPUB): font, size, layout and style are saved for each book. A book is recognised by
   its content, so the settings stay when you rename or move the file. Home Backup includes them.
   **Text Settings → Layout → Reset Text Settings** sets the book back to the default values.
+- **Settings → Reader → Text Settings** holds the defaults for new books. When you leave it after a change, it asks
+  **Apply changes to**: **New books only** or **All books** (only the values you changed are written to every book).
+- The **Text** panel of the reader toolbar has a **Text Anti-Aliasing** on/off row, saved for the book.
+- **Back** and **Forward** (EPUB) return to where you were before a jump, like in a web browser: contents, links,
+  footnotes, Go to %, bookmarks, clippings, chapter skips. They are in the reader menu list and, with the Toolbar menu
+  style, arrow buttons at the ends of the toolbar ([details](USER_GUIDE.md#5-reader-menu)).
 - With enough screen margin, the battery and clock show at the top of the page, as on Home: clock top-left,
   battery top-right. Otherwise they stay in the bottom status bar.
 - **Fast Page Turns** (Settings → Display, BOOX Picco with the SSD2677 panel; on by default) keeps the screen powered
@@ -92,11 +102,21 @@ Details: [User Guide, Reading Stats](USER_GUIDE.md#39-reading-stats-fork) and [d
 - The reader records your reading sessions and page turns on the SD card (EPUB, TXT and Markdown). Nothing leaves
   the reader, except in your own Home Backup.
 - Active reading time leaves out pauses: a page that stays open much longer than you usually need for it counts as a
-  pause. The usual speed is learned for each book.
+  pause. The usual speed is learned for each book. When the reader goes to sleep by itself, the last page counts only
+  as long as a typical page. Time with a definition open counts apart, as dictionary time.
 - **Reading Stats** (Home, or the reader menu) shows today, this week, month and year, your reading streak, books
-  finished this year, and bar charts of reading time per day, week, month and year. Tap a day to see its sessions.
+  finished this year, and bar charts of reading time per day, week, month and year. Tap a day to see its sessions, a
+  week or month to see its reading days.
+- **Books** and **Hidden Books** lists, and a page for each book: time, sessions, reading style (Stalled, Binge,
+  Snacking, Steady, Intermittent), speed, time to finish, progress per day, lookups per hour and late nights.
+  **Compare with Another Book** shows two books side by side.
+- **What Hooked Me**: a book chapter by chapter (time, speed, where sessions started and stopped, re-reads, pauses,
+  lookups).
+- **When I Read** (weekday x hour grid), **Records**, **Year in Review** and **Reading Speed Trends**.
 - Opens under a minute or without a page turn are left out (**Ignore Short Opens in Stats**, on by default). Hold a book on
   Home and choose **Hide from Stats** to leave a test book out.
+- In a browser: while File Transfer is on, **Reading Stats** (`/stats`) shows the same statistics with larger charts,
+  and **Export** downloads the sessions and books as CSV files.
 
 ### Sleep screen
 
@@ -104,6 +124,7 @@ Details: [User Guide, Sleep Screen](USER_GUIDE.md#37-sleep-screen).
 
 - A strip shows the battery level at sleep and the progress in the open book. On USB power it shows the charging
   state in place of the battery level.
+- On the SSD2677 panel the strip updates without a full-screen flash, and the sleep image keeps its gray tones.
 
 ### Home
 

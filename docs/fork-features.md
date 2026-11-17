@@ -7,7 +7,7 @@ Details: [USER_GUIDE.md section 3.6.3](../USER_GUIDE.md#363-controls).
 
 | Feature | How |
 |---|---|
-| Full touch lock | Each switch move toggles it (position does not matter); all touch ignored, side buttons work; kept through sleep |
+| Full touch lock | Each switch move toggles it (position does not matter); all touch ignored, side buttons work; kept through sleep; a switch moved while asleep toggles it at wake |
 | Lock from the light panel | Touch tile (pointer) toggles the lock; locking closes the panel |
 | Lock indicator | Padlock centred in the top bar and in the top page margin (top-right corner when the margin is too small); open while overridden (from Home, or in a book while the toolbar opened with Up + Down has touch) |
 | Light panel under the lock | Up + Down together (touch works inside the panel); in a book (EPUB, TXT, Markdown, Toolbar menu style) the reader toolbar opens at the bottom with it, so the menus can be reached: tap the Contents, Text or More icon to close the panel and open that item (history Back/Forward jump at once and close both), touch stays on until the page is back; closing the panel (Up + Down, Back, a tap on the page) closes both |
@@ -91,6 +91,7 @@ Details: [docs/reading-stats.md](reading-stats.md) (data, rules, formats) and [U
 
 ## Sleep screen
 - Strip with "Battery at sleep N%" and "· Book N%". On USB power the first part reads "Charging N%" or "Charged N%".
+- SSD2677 panel only (the one with Fast Page Turns): the strip is drawn over the gray sleep image with the stock mode-3 waveform, which leaves every pixel outside the strip undriven, so the image keeps its gray levels and there is no full-screen flash (`displayRetainedGrayscaleOverlay` in the `freeink-sdk` SSD2677 driver, branch `picco-custom`, after the overlay gray pass the Picco sleep screen uses; upstream implements it for SSD1677 absolute images only). Gray pixels inside the strip are driven to black or white; later updates change only the pixels that differ. The panel powers off after each update, as for the whole sleep sequence. Other panels, or no gray image on the glass: a fast refresh, as before.
 
 ## Home Backup
 Details: [USER_GUIDE.md section 3.6.8](../USER_GUIDE.md#368-home-backup-fork) and [docs/home-backup.md](home-backup.md).

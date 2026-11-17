@@ -396,7 +396,7 @@ Side buttons, and Taps and gestures where supported by the device. See the
 - **Slide Switch (BOOX Picco)**: Chooses what the side slide switch controls: **Frontlight**, **Night Mode**, or **Touch controls while reading**. For Frontlight and Night Mode, the switch position always wins over the matching on-screen toggle.
   - With **Touch controls while reading** (this fork), the switch is a **touch lock toggle**: each move of the switch, in either direction, turns the lock on or off, so the position (red or white) does not matter; the padlock shows the state. While locked, the whole touchscreen is ignored, including taps, swipes, edge gestures, long-press, and the header Back button. The side Up/Down buttons still turn pages. Touches while locked do not keep the reader awake.
   - The touch tile (pointer icon) in the light panel toggles the same lock: filled = touch on. Locking from the tile closes the panel at once.
-  - The lock stays as it was through sleep and restart. Moving the switch while the reader sleeps is ignored. Moving it while touch is unlocked from Home (see below) ends that unlock.
+  - The lock stays as it was through sleep and restart. If the switch is in a different position when the reader wakes, the lock changes (moving it there and back while asleep does nothing), and the wake screen already shows the new state. A move during a restart, or after the battery ran out, is ignored. Moving it while touch is unlocked from Home (see below) ends that unlock.
   - A touch that starts while locked stays ignored until the finger lifts, even if you unlock meanwhile.
 
 - **Light panel (this fork)**: while the frontlight is off, the brightness and warmth controls are greyed out and inactive; turn the light on with the lamp button first. A tap on **-** or **+** changes the level by 1%; hold the button to keep changing it (after about 0.4 s, then several steps per second).
@@ -662,7 +662,7 @@ For an `https://` server the reader trusts only one pinned certificate: copy the
 
 ### 3.7 Sleep Screen
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), followed by the progress in the open book ("· Book 34%") when it went to sleep from a book. On USB power the first part reads "Charging" or "Charged" with the level instead.
+The **Sleep Screen** setting controls what is displayed when the device goes to sleep. On the BOOX Picco (this fork) a strip along the bottom also shows the battery level at the moment it went to sleep ("Battery at sleep 72%"; it does not update while asleep), followed by the progress in the open book ("· Book 34%") when it went to sleep from a book. On USB power the first part reads "Charging" or "Charged" with the level instead. On the SSD2677 panel (the one with Fast Page Turns), the strip updates without a full-screen flash and the gray tones of the sleep image stay.
 
 Modes:
 

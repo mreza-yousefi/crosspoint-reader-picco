@@ -4,11 +4,14 @@ The reader records when and how you read EPUB books (TXT and Markdown too, as th
 reader; XTC books are not recorded) and shows it on the **Reading Stats** screen. This page is the
 contract for the data: file formats, the rules that turn page turns into "active reading time",
 and what each screen reads. Stage 1 has the recorder, the Overview and the time charts. Stage 2
-(this version) adds the book lists and book pages, reading styles, the weekday x hour grid,
-comparing two books, the week and month drill-down, dictionary time and the automatic-sleep idle
-trim. Later stages add records, a year in review and a web page; they read the same files.
+adds the book lists and book pages, reading styles, the weekday x hour grid, comparing two books,
+the week and month drill-down, dictionary time and the automatic-sleep idle trim. Stage 3 (this
+version) adds records, the year in review, speed trends, lookups per hour, late nights and "what
+hooked me" per chapter; it adds no file and reads the files below. A later stage adds a web page
+and CSV export.
 
-Code: `src/stats/` (recorder, rules, file formats, queries), `src/activities/stats/` (screens).
+Code: `src/stats/` (recorder, rules, file formats, queries; Stage 3 rules in `StatsInsights`),
+`src/activities/stats/` (screens).
 Host tests: `test/reading_stats/`.
 
 **Not the upstream `reader.session` plugin event.** Upstream CrossPoint emits a `reader.session`
@@ -190,8 +193,10 @@ paper pages in the book, orientation, reserved, session number, ms from session 
 first page.
 
 **`T` page change (20 bytes)**: type, size, kind (1 next, 2 previous, 3 jump forward, 4 jump
-back), reserved, spine item, percent, ms since session start, text offset, paper page, reserved.
-Every page change is recorded: page turns (queued ones too), chapter skips, links, footnotes, the
+back), reserved, spine item, percent, ms since session start, text offset, paper page,
+`dwellDs` (the active time the recorder counted for the page that ended, in 0.1 s; 0 = not
+known). `dwellDs` was a reserved field the recorder always wrote as 0, so older logs read "not
+known" and the log version stays 1. Every page change is recorded: page turns (queued ones too), chapter skips, links, footnotes, the
 table of contents, Go to %, bookmarks and sync jumps.
 
 **`E` event (8 bytes)**: type, size, kind (1 dictionary lookup, 2 clipping saved, 3 bookmark
@@ -220,7 +225,7 @@ the raw logs; the screens read this instead of the logs.
 | startPercentBp, endPercentBp | position, basis points (10000 = end-of-book screen) |
 | startPaperPage, endPaperPage | position, paper pages (0 = unknown) |
 | startSpine, endSpine | spine items |
-| flags | 1 wall time known, 2 short open, 4 closed by recovery, 8 light on at start, 16 finished the book, 32 idle-trimmed (ended by automatic sleep, see Active time) |
+| flags | 1 wall time known, 2 short open, 4 closed by recovery, 8 light on at start, 16 finished the book, 32 idle-trimmed (ended by automatic sleep, see Active time), 64 raw records dropped (the recorder's buffer was full; set in `X` and copied here) |
 | endReason | as in `X` |
 | fontSize, orientation | at start |
 | sessionSeq | session number, unique, also in the raw log |
@@ -338,6 +343,10 @@ apply. They do not read `booktotals.bin`, so they always match the sessions they
   value. At most `MAX_PROGRESS_POINTS` + 1 (129) points of 8 bytes are kept: past that every
   second one is dropped, the first and the last stay.
 - **Sessions** list: the newest `MAX_BOOK_SESSIONS` (100) counted sessions.
+- **Lookups per hour**: the book's lookups x 3600 / its active seconds, one decimal
+  (`lookupsPerHourTenths`).
+- **Late nights**: counted sessions with active time in the late-night hours, and that time
+  (`lateNightSec`, below).
 
 ### Reading style
 
@@ -362,6 +371,97 @@ session's active time is spread evenly over the local hours its wall time covers
 plus length; a session of more than a day goes to its start hour), in cells of weekday (Monday
 first) x hour (`addToHourGrid`). A cell is shaded in thirds of the busiest cell (`gridShade`).
 
+## Records, year in review, trends
+
+All three read `sessions.bin` (one pass) and the running session; the records and the year also
+read `days.bin` for the streaks and the day and week totals. Every local time is the session's own
+(`tzOffsetMin` at its start).
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `LATE_START_HOUR`, `LATE_END_HOUR` | 23, 4 | late-night hours, 23:00-04:00 local |
+| `FASTEST_MIN_MEASURED_MS` | 30 min | measured reading a book needs to be the fastest book |
+| `YEAR_TOP_BOOKS` | 3 | top books in a year |
+| `SPEED_MONTHS` | 12 | months in the speed trend |
+| `MAX_FONT_SIZES` | 12 | font sizes in the speed trend; sessions at a 13th size are left out of that view |
+| `MORNING_START_HOUR`, `AFTERNOON_START_HOUR`, `EVENING_START_HOUR`, `NIGHT_START_HOUR` | 5, 12, 17, 22 | parts of the day |
+
+- **Late-night time** (`lateNightSec`): the session's active time spread evenly over the local
+  hours its wall time covers (as the weekday x hour grid), the part in the late-night hours. A
+  session is a late-night session when that part is not 0.
+- **Records** (`addRecordSession`, `finishRecords`) use the counted sessions of books not
+  hidden. Longest session (active time), most lookups in one session and the fastest book take
+  undated sessions too (shown without a date); the others need a known wall time. Longest
+  sitting: the active time of a sitting (sessions of one book less than `SITTING_GAP_SEC` apart,
+  in file order; an undated session breaks it). Latest night: the latest local end time of a
+  session, the clock counted from `LATE_END_HOUR` (so 01:00 is later than 23:00); a session that
+  reads on past `LATE_END_HOUR` ends at 03:59 for this. Earliest morning: the earliest local
+  start time, counted the same way (03:00 is not early, it is late). Sessions of a day or longer
+  have no end time for these. Most in one day and week: from `days.bin` with the running
+  session. Fastest book: the highest pages per hour (`pagesPerHour`) of a book's sessions with
+  at least `FASTEST_MIN_MEASURED_MS` measured. Longest streak: as on the Overview. Then lookups
+  per hour (all these sessions) and late nights (dated ones). Ties keep the first.
+- **Year in review** (`addYearSession`, `finishYearReview`): the calendar sessions that started
+  in the local year. Total, sessions, average session, lookups (and per hour), late nights, the
+  busiest month (by session start), the busiest weekday and the favourite hour (from the weekday
+  x hour grid of those sessions), the longest streak counting only the year's days, the top
+  `YEAR_TOP_BOOKS` books by time. Books finished: as the Overview (`booktotals.bin`). Reading
+  styles: the books with time in the year, each by its style today (all its counted sessions,
+  as on the book page; labelled "today"). The tabs are the years with counted calendar reading
+  (`days.bin`), newest first, at most 6; without any, this year alone (empty).
+- **Speed trends** (`addSpeedSession`): calendar sessions with measured reading (`learnedMs`,
+  summed in 64 bits), speed as on the book page (`charsRead / learnedMs`, shown from 5 minutes measured). By month:
+  the 12 months up to this one. By part of the day: the session's local start hour; Morning
+  05-12, Afternoon 12-17, Evening 17-22, Night 22-05. By font size: the size at the session
+  start.
+
+## What hooked me (per chapter)
+
+From one book's raw log (`books/<document id>.log`), replayed twice (`ChapterReplay`), opened
+from the book page. Nothing is stored; the result is kept while the screen is open.
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `MAX_CHAPTERS` | 256 | spine items counted; later ones add to the last entry |
+| `MAX_HOOK_SESSIONS` | 8192 | sessions whose short-open state pass 1 keeps (1 bit each); later sessions count |
+| `MAX_SESSION_CHAPTERS` | 16 | chapters one session's time is spread over; more add to the 16th |
+| `ONE_MORE_PAGES` | 3 | next pages in a new chapter for "one more chapter" |
+
+- **Pass 1** replays the log with `LogReplay` (the same rules and speed model as a rebuild of
+  `sessions.bin`) to find which sessions count (`countsInTotals`) and the highest spine item.
+  **Pass 2** replays it again and adds the counted sessions to one counter set per spine item
+  (36 bytes each: at most 9 KB, sized to the highest spine item read, usually 1-3 KB). Before
+  the passes the recorder writes its buffered records, so the running session counts up to now,
+  closed as a reset would close it.
+- **Time**: each page dwell goes to the spine item of its page, with the dictionary time on that
+  page. The dwell is the turn record's `dwellDs` (what the recorder counted); in logs from before
+  that field (0) it is estimated by `LogReplay`'s clock with the book's speed model of today. For
+  a session with an `X` record, the last page is what its active time leaves when every dwell was
+  recorded and none was dropped (flag 64), else the clock's estimate; then the session's chapter
+  times are scaled to add up to its active time (the rounding goes to its largest share). A
+  session without an `X` record (the running one, or one cut by a reset) has no recorded total:
+  its dwells and the clock's estimate of its last page are used as they are, without scaling. So
+  chapter time is exact for sessions recorded since `dwellDs`, and an estimate, spread in
+  proportion, for older ones. **Speed**:
+  `charsRead` over the dwells of the next pages in the chapter.
+- **Starts** and **stops**: the spine item of a session's first page and of its last page.
+  **Last stop**: where the last counted session ended.
+- **One more chapter**: a session turns to the next page from one spine item into the next one,
+  the two in different table-of-contents entries (neither without one, so the cover and a
+  chapter split into files do not count), and then turns `ONE_MORE_PAGES` more next pages in that
+  entry. It counts once per entry, in that chapter; the Highlights show the sessions with at least
+  one. Without the book's cache each spine item is its own entry.
+- **Re-read**: the text of next pages in a spine item that lies before the furthest text offset
+  reached by next pages there earlier (`rereadChars`), shown in paper pages.
+- **Turns back**: previous pages and jumps back, counted where they started.
+- **Pauses**: pause events (`E` kind 5: a menu or screen opened over the page), not pages left
+  longer than their cap. **Lookups**: `E` kind 1.
+- **Chapters**: when the book is at its registry path and its spine/TOC cache (`book.bin` in the
+  book's cache folder) is there, read without opening the book, spine items are named by their
+  table-of-contents entry and consecutive spine items of one entry are merged into one chapter;
+  titles are cut to 48 bytes. Otherwise each spine item is a chapter named "Chapter N" (spine
+  item + 1). Chapters without reading are left out.
+
 ## Screens
 
 All screens work with the buttons alone; touch is optional.
@@ -373,13 +473,13 @@ All screens work with the buttons alone; touch is optional.
 | Week or month drill-down (reading days of a Weeks or Months bar) | `days.bin` + running session |
 | Day list (sessions of one day; Confirm opens the session's book page) | `sessions.bin` (one pass), titles and hidden flags from `books.bin` |
 | Books, Hidden Books (time, last read, style; last read first) | `sessions.bin` (one pass, 16 + 16 + 1 bytes per book while loading), hidden flags and titles from `books.bin`, the running session |
-| Book page: Summary, Progress, Sessions (from the lists, the day list, the book's hold menu on Home or in the Library's Recent view, the reader menu) | `sessions.bin` filtered by book, the running session, title and hidden flag from `books.bin`; up to 100 session rows of 28 bytes and 129 progress points of 8 bytes |
+| Book page: Summary (with lookups per hour and late nights), Progress, Sessions (from the lists, the day list, the book's hold menu on Home or in the Library's Recent view, the reader menu) | `sessions.bin` filtered by book, the running session, title and hidden flag from `books.bin`; up to 100 session rows of 28 bytes and 129 progress points of 8 bytes |
 | Compare two books (time, speed, sessions, sittings, style, days to finish; the second book from the books not hidden) | as the book page, without the session rows |
 | When I Read (weekday x hour grid) | `sessions.bin` + running session |
-| Later: records, year in review | `sessions.bin` |
-| Later: "what hooked me" (time and speed per chapter, where pauses and sessions start, turns back) | the book's raw log (`T`, `E` and `S` records by spine item) |
-| Later: lookups per hour | `E` records, `/Vocabulary.txt` |
-| Later: speed trends by month, time of day, font size | `sessions.bin` (`charsRead`, `learnedMs`, font size) |
+| Records (longest session and sitting, most in a day and week, fastest book, longest streak, most lookups in a session, latest night, earliest morning; lookups per hour and late nights overall) | `sessions.bin` + running session (24 bytes per book while loading), `days.bin`, titles from `books.bin` |
+| Year in review (a tab per year) | `sessions.bin` + running session (24 bytes per book while loading), `days.bin`, `booktotals.bin` (finished), titles from `books.bin` |
+| Reading speed trends: by month, time of day, font size | `sessions.bin` + running session (`charsRead`, `learnedMs`, font size) |
+| What hooked me: Highlights and Chapters (from the book page) | the book's raw log (`S`, `T`, `E`, `X` records; the recorder's buffer is written first), its record in `books.bin` (speed model, path), the book's `book.bin` spine/TOC cache for chapter entries and titles |
 | Later: web page, CSV export | all of the above |
 
 A streak counts days with active reading; it is current when it ends today, or yesterday while

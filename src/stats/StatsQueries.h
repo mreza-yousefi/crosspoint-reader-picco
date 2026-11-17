@@ -1,9 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "StatsFormat.h"
+#include "StatsInsights.h"
 #include "StatsLogic.h"
 
 // Read side of the reading statistics for the screens. Reads the summaries (days.bin,
@@ -74,6 +77,8 @@ struct BookDetail {
   ReadingStyle style = ReadingStyle::None;
   std::vector<ProgressPoint> progress;   // per reading day, at most MAX_PROGRESS_POINTS + 1
   std::vector<BookSessionRow> sessions;  // newest first, at most MAX_BOOK_SESSIONS
+  uint32_t lateSessions = 0;             // counted sessions with late-night reading
+  uint32_t lateSec = 0;
 };
 // One book's counted sessions (sessions.bin, the running one). full: also the session rows and
 // the progress points; without it only the totals and style.
@@ -82,5 +87,30 @@ bool loadBookDetail(uint16_t index, BookDetail& out, bool full = true);
 // Calendar sessions that started on fromDay or later, spread over the weekday x hour grid
 // (GRID_CELLS values).
 void loadHourGrid(int32_t fromDay, uint32_t* grid);
+
+// Records over the counted sessions of books not hidden and days.bin, the running session included.
+bool loadRecords(Records& out);
+// Years with counted calendar reading, newest first, at most maxYears; this year alone when there
+// is none and the clock is set. Returns the count.
+int loadReadingYears(int* out, int maxYears);
+bool loadYearReview(int year, YearReview& out);
+// Speed of the calendar sessions: the 12 months up to this one (the last reading day's without
+// a clock), parts of the day, font sizes.
+bool loadSpeedTrends(SpeedTrends& out);
+
+// What hooked me: one book's chapters from its raw log, the running session included (its
+// buffered records are written first).
+struct BookHooks {
+  HookTotals totals;
+  // Chapters with reading in book order; spine items of one TOC entry are merged.
+  std::unique_ptr<ChapterStats[]> chapters;
+  size_t count = 0;
+  // Chapter i's TOC title starts at titleAt[i] in titles (NUL-terminated; empty without a title).
+  std::string titles;
+  std::vector<uint16_t> titleAt;
+};
+// Two passes over the book's log; TOC entries and titles from the book's spine/TOC cache when it
+// is there.
+bool loadBookHooks(uint16_t index, BookHooks& out);
 
 }  // namespace stats

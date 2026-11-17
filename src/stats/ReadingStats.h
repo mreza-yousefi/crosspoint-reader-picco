@@ -12,6 +12,8 @@
 #include "StatsFormat.h"
 #include "StatsLogic.h"
 
+class HalFile;
+
 // Records EPUB reading sessions and keeps the summaries under /.crosspoint/stats
 // (docs/reading-stats.md). The reader calls beginSession/endSession, setPaused and tick on
 // its loop task and onPageShown/noteEndOfBook on the render task; page data is buffered in
@@ -42,6 +44,8 @@ class ReadingStats {
   void setDictionaryOpen(bool open);
   // Loop task, idle frames: writes buffered records when due.
   void tick();
+  // Loop task: writes the buffered records now, so a reader of the log sees the running session.
+  void flushPending();
   void endSession(stats::EndReason reason);
 
   // The running session's totals so far (activeSec includes the open dwell); false when none.
@@ -71,6 +75,10 @@ class ReadingStats {
   int bookIndexFor(const std::string& docId);
   // Book of the running session, -1 when none.
   int liveBookIndex() const;
+  // A book's registry record and the registry header (global speed model); false when unknown.
+  bool bookRecord(int index, stats::BookRecord& out, stats::RegistryHeader& header);
+  // Opens a book's raw log positioned after its header; false when it has no readable log.
+  static bool openBookLog(const char* docId, HalFile& file);
 
  private:
   ReadingStats();

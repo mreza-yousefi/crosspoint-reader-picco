@@ -14,6 +14,9 @@
 #include "ReadingStatsDayActivity.h"
 #include "ReadingStatsHoursActivity.h"
 #include "ReadingStatsPeriodActivity.h"
+#include "ReadingStatsRecordsActivity.h"
+#include "ReadingStatsSpeedActivity.h"
+#include "ReadingStatsYearActivity.h"
 #include "StatsText.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -62,6 +65,9 @@ void ReadingStatsActivity::onEnter() {
   rows[ROW_BOOKS].label = tr(STR_STATS_BOOKS);
   rows[ROW_HIDDEN].label = tr(STR_STATS_HIDDEN_BOOKS);
   rows[ROW_WHEN].label = tr(STR_STATS_WHEN_I_READ);
+  rows[ROW_RECORDS].label = tr(STR_STATS_RECORDS);
+  rows[ROW_YEAR_REVIEW].label = tr(STR_STATS_YEAR_IN_REVIEW);
+  rows[ROW_SPEED].label = tr(STR_STATS_SPEED_TRENDS);
   rows[ROW_IGNORE_SHORT].label = tr(STR_STATS_IGNORE_SHORT_OPENS);
   RenderLock lock;
   if (READING_STATS.needsLogRebuild()) GUI.drawPopup(renderer, tr(STR_STATS_UPDATING));
@@ -248,7 +254,7 @@ void ReadingStatsActivity::activateIndex(const int index) {
   if (!chartTab()) {
     if (index == ROW_IGNORE_SHORT) {
       toggleIgnoreShortOpens();
-    } else if (index == ROW_BOOKS || index == ROW_HIDDEN || index == ROW_WHEN) {
+    } else if (index >= ROW_BOOKS && index < ROW_IGNORE_SHORT) {
       openOverviewScreen(index);
     }
     return;
@@ -316,6 +322,12 @@ void ReadingStatsActivity::openOverviewScreen(const int row) {
   std::unique_ptr<Activity> screen;
   if (row == ROW_WHEN) {
     screen = makeUniqueNoThrow<ReadingStatsHoursActivity>(renderer, mappedInput);
+  } else if (row == ROW_RECORDS) {
+    screen = makeUniqueNoThrow<ReadingStatsRecordsActivity>(renderer, mappedInput);
+  } else if (row == ROW_YEAR_REVIEW) {
+    screen = makeUniqueNoThrow<ReadingStatsYearActivity>(renderer, mappedInput);
+  } else if (row == ROW_SPEED) {
+    screen = makeUniqueNoThrow<ReadingStatsSpeedActivity>(renderer, mappedInput);
   } else {
     screen = makeUniqueNoThrow<ReadingStatsBooksActivity>(
         renderer, mappedInput,
@@ -393,7 +405,7 @@ void ReadingStatsActivity::drawFooter() {
     confirm = tr(STR_TOGGLE);
   } else if (!chartTab() && ring - 1 == ROW_IGNORE_SHORT) {
     confirm = tr(STR_TOGGLE);
-  } else if (!chartTab() && (ring - 1 == ROW_BOOKS || ring - 1 == ROW_HIDDEN || ring - 1 == ROW_WHEN)) {
+  } else if (!chartTab() && ring - 1 >= ROW_BOOKS && ring - 1 < ROW_IGNORE_SHORT) {
     confirm = tr(STR_OPEN);
   } else if (tab == TAB_DAYS || tab == TAB_WEEKS || tab == TAB_MONTHS) {
     confirm = tr(STR_OPEN);

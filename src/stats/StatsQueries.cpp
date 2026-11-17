@@ -1,6 +1,10 @@
 #include "StatsQueries.h"
 
+#include <Arduino.h>
+#include <Epub.h>
 #include <HalStorage.h>
+#include <Logging.h>
+#include <Memory.h>
 #include <TrustedTime.h>
 
 #include <algorithm>
@@ -8,6 +12,7 @@
 #include "CrossPointSettings.h"
 #include "ReadingStats.h"
 #include "StatsLogic.h"
+#include "util/TaskWatchdog.h"
 
 namespace stats {
 
@@ -15,6 +20,29 @@ namespace {
 bool readExact(HalFile& file, void* out, const size_t size) { return file.read(out, size) == static_cast<int>(size); }
 
 bool ignoreShort() { return SETTINGS.statsIgnoreShortOpens != 0; }
+
+size_t readHalFile(void* ctx, void* buf, const size_t n) {
+  if (n == 0) return 0;
+  const int read = static_cast<HalFile*>(ctx)->read(buf, n);
+  return read > 0 ? static_cast<size_t>(read) : 0;
+}
+
+bool hasReading(const ChapterStats& c) {
+  return c.activeMs > 0 || c.starts > 0 || c.ends > 0 || c.turnsBack > 0 || c.pauses > 0 || c.lookups > 0;
+}
+
+// Log records between watchdog resets while a book's log is replayed.
+constexpr uint32_t WATCHDOG_RECORDS = 256;
+
+// Longest TOC title kept per chapter, cut at a UTF-8 character boundary.
+constexpr size_t MAX_CHAPTER_TITLE = 48;
+
+void appendTitle(std::string& pool, const std::string& title) {
+  size_t len = std::min(title.size(), MAX_CHAPTER_TITLE);
+  while (len > 0 && len < title.size() && (static_cast<uint8_t>(title[len]) & 0xC0) == 0x80) --len;
+  pool.append(title, 0, len);
+  pool.push_back('\0');
+}
 
 }  // namespace
 
@@ -194,9 +222,15 @@ bool loadBookDetail(const uint16_t index, BookDetail& out, const bool full) {
       [](void* c, const SessionRecord& s, const bool live, bool) {
         auto& x = *static_cast<Context*>(c);
         if (s.bookIndex != x.index ||
-            !addBookSession(x.out->agg, s, x.ignoreShort, x.full ? &x.out->progress : nullptr) || !x.full) {
+            !addBookSession(x.out->agg, s, x.ignoreShort, x.full ? &x.out->progress : nullptr)) {
           return;
         }
+        const uint32_t late = lateNightSec(s);
+        if (late > 0) {
+          ++x.out->lateSessions;
+          x.out->lateSec += late;
+        }
+        if (!x.full) return;
         const BookSessionRow row{s.startUtc,       s.durationSec,  s.activeSec, s.dictSec, s.tzOffsetMin,
                                  s.startPercentBp, s.endPercentBp, s.lookups,   s.flags,   live};
         auto& rows = x.out->sessions;
@@ -232,4 +266,191 @@ void loadHourGrid(const int32_t fromDay, uint32_t* grid) {
       &context);
 }
 
+bool loadRecords(Records& out) {
+  out = Records{};
+  std::vector<uint8_t> hidden;
+  READING_STATS.loadHiddenFlags(hidden);
+  // 24 bytes per book while loading: sittings and the fastest book.
+  std::vector<RecordsBook> books(hidden.size());
+  struct Context {
+    Records* out;
+    std::vector<RecordsBook>* books;
+    bool ignoreShort;
+  } context{&out, &books, ignoreShort()};
+  forEachSession(
+      [](void* c, const SessionRecord& session, bool, const bool isHidden) {
+        const auto& x = *static_cast<Context*>(c);
+        if (!isHidden && countsInTotals(session, x.ignoreShort)) addRecordSession(*x.out, *x.books, session);
+      },
+      &context);
+  DayTotals days;
+  loadDayTotals(days);
+  finishRecords(out, books, days.days.data(), days.days.size());
+  return true;
+}
+
+int loadReadingYears(int* out, const int maxYears) {
+  DayTotals days;
+  loadDayTotals(days);
+  int count = 0;
+  for (auto it = days.days.rbegin(); it != days.days.rend() && count < maxYears; ++it) {
+    const int year = static_cast<int>(yearOf(it->day));
+    if (count == 0 || out[count - 1] != year) out[count++] = year;
+  }
+  bool known = false;
+  const int32_t todayDay = today(known);
+  if (count == 0 && known && maxYears > 0) out[count++] = static_cast<int>(yearOf(todayDay));
+  return count;
+}
+
+bool loadYearReview(const int year, YearReview& out) {
+  out = YearReview{};
+  out.year = year;
+  std::vector<uint8_t> hidden;
+  READING_STATS.loadHiddenFlags(hidden);
+  // 24 bytes per book while loading: the year's time and the book's style.
+  std::vector<YearBook> books(hidden.size());
+  struct Context {
+    YearReview* out;
+    std::vector<YearBook>* books;
+    bool ignoreShort;
+  } context{&out, &books, ignoreShort()};
+  forEachSession(
+      [](void* c, const SessionRecord& session, bool, const bool isHidden) {
+        const auto& x = *static_cast<Context*>(c);
+        addYearSession(*x.out, *x.books, session, x.ignoreShort, isHidden);
+      },
+      &context);
+  DayTotals days;
+  loadDayTotals(days);
+  bool known = false;
+  const int32_t todayDay = today(known);
+  finishYearReview(out, books, days.days.data(), days.days.size(), known, todayDay);
+  return true;
+}
+
+bool loadSpeedTrends(SpeedTrends& out) {
+  out = SpeedTrends{};
+  bool known = false;
+  int32_t lastDay = today(known);
+  if (!known) {
+    DayTotals days;
+    loadDayTotals(days);
+    lastDay = days.days.empty() ? 0 : days.days.back().day;
+  }
+  out.firstMonth = monthIndex(lastDay) - (SPEED_MONTHS - 1);
+  forEachCalendarSession(
+      [](void* c, const SessionRecord& session, bool) { addSpeedSession(*static_cast<SpeedTrends*>(c), session); },
+      &out);
+  return true;
+}
+
+bool loadBookHooks(const uint16_t index, BookHooks& out) {
+  const unsigned long startMs = millis();
+  out.totals = HookTotals{};
+  out.chapters.reset();
+  out.count = 0;
+  out.titles.clear();
+  out.titleAt.clear();
+  // The running session's buffered page changes go to its log first.
+  READING_STATS.flushPending();
+
+  struct BookModel {
+    BookRecord book;
+    RegistryHeader header;
+  };
+  auto model = makeUniqueNoThrow<BookModel>();
+  auto replay = makeUniqueNoThrow<ChapterReplay>();
+  if (!model || !replay) {
+    LOG_ERR("STATS", "OOM: chapter replay (%u bytes)",
+            static_cast<unsigned>(sizeof(BookModel) + sizeof(ChapterReplay)));
+    return false;
+  }
+  BookRecord& book = model->book;
+  HalFile log;
+  if (!READING_STATS.bookRecord(index, book, model->header) || !ReadingStats::openBookLog(book.docId, log)) return true;
+
+  // Pass 1: which sessions count and how many spine items.
+  replay->beginCount(chooseRate(book.rateHist, book.rateSamples, model->header.globalHist, model->header.globalSamples),
+                     book.typicalPageChars, 0, book.rateSamples >= MIN_MODEL_SAMPLES, ignoreShort());
+  uint8_t buf[RAW_MAX_KNOWN_SIZE];
+  size_t size = 0;
+  {
+    LogScanner scanner(&readHalFile, &log, sizeof(FileHeader));
+    for (uint32_t n = 1; scanner.next(buf, size); ++n) {
+      replay->count(buf, size);
+      if (n % WATCHDOG_RECORDS == 0) resetTaskWatchdogIfSubscribed();
+    }
+  }
+  replay->finishCount();
+  const size_t spines = replay->chapterCount();
+  if (spines == 0) return true;
+
+  // Each spine item's TOC entry, from the book's spine/TOC cache when it is there.
+  auto toc = makeUniqueNoThrow<int16_t[]>(spines);
+  auto chapters = makeUniqueNoThrow<ChapterStats[]>(spines);
+  if (!toc || !chapters) {
+    LOG_ERR("STATS", "OOM: chapters (%u bytes)", static_cast<unsigned>(spines * (sizeof(ChapterStats) + 2)));
+    return false;
+  }
+  std::fill(toc.get(), toc.get() + spines, static_cast<int16_t>(-1));
+  book.path[sizeof(book.path) - 1] = '\0';
+  const unsigned long tocStartMs = millis();
+  std::unique_ptr<BookMetadataCache> meta;
+  if (Storage.exists(book.path)) {
+    meta = makeUniqueNoThrow<BookMetadataCache>(Epub::cachePathFor(book.path, "/.crosspoint"));
+    if (meta && !meta->load()) meta.reset();
+  }
+  const size_t spineItems = meta ? std::min<size_t>(spines, static_cast<size_t>(meta->getSpineCount())) : 0;
+  for (size_t i = 0; i < spineItems; ++i) toc[i] = meta->getSpineEntry(static_cast<int>(i)).tocIndex;
+  LOG_INF("STATS", "TOC of book %u: %s, %lu ms", static_cast<unsigned>(index), meta ? "loaded" : "none",
+          millis() - tocStartMs);
+
+  // Pass 2: the chapters.
+  replay->beginChapters(chapters.get(), spines, meta ? toc.get() : nullptr);
+  if (!log.seek(sizeof(FileHeader))) return false;
+  {
+    LogScanner scanner(&readHalFile, &log, sizeof(FileHeader));
+    for (uint32_t n = 1; scanner.next(buf, size); ++n) {
+      replay->feed(buf, size);
+      if (n % WATCHDOG_RECORDS == 0) resetTaskWatchdogIfSubscribed();
+    }
+  }
+  replay->finish();
+  log.close();
+  out.totals = replay->totals();
+  replay.reset();
+
+  // Spine items of one TOC entry become one chapter; chapters without reading are left out. A
+  // row's TOC index goes to toc[row] (row <= spine item, so the map is read before it is reused).
+  size_t count = 0;
+  for (size_t i = 0; i < spines; ++i) {
+    const int16_t tocIndex = toc[i];
+    if (count > 0 && tocIndex >= 0 && tocIndex == toc[count - 1]) {
+      mergeChapter(chapters[count - 1], chapters[i]);
+      continue;
+    }
+    if (count > 0 && !hasReading(chapters[count - 1])) --count;
+    chapters[count] = chapters[i];
+    toc[count++] = tocIndex;
+  }
+  if (count > 0 && !hasReading(chapters[count - 1])) --count;
+
+  out.titleAt.reserve(count);
+  out.titles.reserve(count * 24);
+  for (size_t i = 0; i < count; ++i) {
+    out.titleAt.push_back(static_cast<uint16_t>(out.titles.size()));
+    if (meta && toc[i] >= 0) {
+      const BookMetadataCache::TocEntry entry = meta->getTocEntry(toc[i]);
+      appendTitle(out.titles, entry.title);
+    } else {
+      out.titles.push_back('\0');
+    }
+  }
+  out.chapters = std::move(chapters);
+  out.count = count;
+  LOG_INF("STATS", "Chapters of book %u: %u in %lu ms", static_cast<unsigned>(index), static_cast<unsigned>(count),
+          millis() - startMs);
+  return true;
+}
 }  // namespace stats

@@ -173,6 +173,10 @@ class LogReplay {
   bool feed(const uint8_t* record, size_t size, SessionRecord& out);
   // Closes a session the log left open; true when there was one.
   bool finish(SessionRecord& out);
+  // The open session's clock and its last page change (per-chapter replays read them). The clock
+  // is reset by the next start record.
+  const ActiveClock& sessionClock() const { return clock; }
+  const ActiveClock::Turn& lastTurn() const { return turnResult; }
 
  private:
   bool close(const RawEnd* end, SessionRecord& out);
@@ -184,6 +188,7 @@ class LogReplay {
   bool open = false;
   SessionRecord rec{};
   ActiveClock clock;
+  ActiveClock::Turn turnResult;
   PagePos lastPos;
   uint32_t lastMs = 0;
 };
@@ -233,8 +238,11 @@ void bucketDays(Range range, int32_t bucket, int32_t& firstDay, int32_t& lastDay
 
 // --- Weekday x hour grid ------------------------------------------------------------------
 constexpr int GRID_CELLS = 7 * 24;
-// Spreads a session's active time evenly over the local hours its wall time covers; cell =
-// weekday (Monday = 0) x 24 + hour. Sessions without wall time add nothing.
+// Calls fn with each local hour a session's wall time covers and that hour's even share of the
+// active time. Sessions without wall time add nothing.
+using HourShareFn = void (*)(void* ctx, int32_t day, int hour, uint32_t sec);
+void spreadOverHours(const SessionRecord& session, HourShareFn fn, void* ctx);
+// Spreads a session over the grid; cell = weekday (Monday = 0) x 24 + hour.
 void addToHourGrid(uint32_t* grid, const SessionRecord& session);
 // Shade of a cell: 0 none, 1-3 thirds of the busiest cell.
 int gridShade(uint32_t value, uint32_t max);

@@ -393,6 +393,19 @@ int ReadingStats::liveBookIndex() const {
   return session ? session->bookIndex : -1;
 }
 
+bool ReadingStats::bookRecord(const int index, BookRecord& out, RegistryHeader& header) {
+  HalFile file;
+  return index >= 0 && Storage.openFileForRead("STATS", REGISTRY_PATH, file) && index < registryCount(file) &&
+         readRegistryHeader(file, header) && file.seek(bookOffset(index)) && readExact(file, &out, sizeof(out));
+}
+
+bool ReadingStats::openBookLog(const char* docId, HalFile& file) {
+  char path[64];
+  logPathFor(docId, path, sizeof(path));
+  FileHeader header{};
+  return openValid(path, MAGIC_LOG, RAW_LOG_VERSION, sizeof(FileHeader), 0, file, header);
+}
+
 bool ReadingStats::bookTitles(const std::vector<uint16_t>& indices, std::vector<std::string>& out) {
   out.clear();
   out.reserve(indices.size());
@@ -549,6 +562,9 @@ void ReadingStats::onPageShown(const PageInfo& info) {
     raw.tMs = now - s.startMs;
     raw.offset = offset;
     raw.paperPage = info.paperPage;
+    // 0 means "not known": a counted dwell under 50 ms is stored as 0.1 s.
+    raw.dwellDs =
+        static_cast<uint16_t>(std::clamp<uint32_t>((turn.countedMs + 50) / 100, turn.countedMs > 0 ? 1 : 0, 0xFFFF));
     appendPending(s, &raw, sizeof(raw));
     pausedFlag = false;  // a page change ends a pause
   }
@@ -652,6 +668,11 @@ void ReadingStats::flush(Session& s, const uint32_t nowMs) {
   appendToLog(s.docId, s.scratch, len);
 }
 
+void ReadingStats::flushPending() {
+  // The loop task alone replaces `session`.
+  if (session) flush(*session, millis());
+}
+
 void ReadingStats::tick() {
   // The loop task alone replaces `session`; it reads the pointer without the lock.
   if (!session) return;
@@ -695,6 +716,7 @@ void ReadingStats::endSession(const EndReason reason) {
       r.tzOffsetMin = localTzOffsetMin(r.startUtc);
       r.flags |= SESSION_WALL_KNOWN;
     }
+    if (x.droppedRecords > 0) r.flags |= SESSION_RECORDS_DROPPED;
     if (x.startWritten) {
       const RawEnd end = makeEnd(r, reason, durationMs, trusted > 0 ? static_cast<uint32_t>(trusted) : 0);
       appendPending(x, &end, sizeof(end), true);

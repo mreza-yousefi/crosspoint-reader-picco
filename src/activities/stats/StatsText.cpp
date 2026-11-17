@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "stats/StatsInsights.h"
 #include "stats/StatsLogic.h"
 
 namespace statstext {
@@ -115,6 +116,28 @@ const char* styleName(const stats::ReadingStyle style) {
       break;
   }
   return "-";
+}
+
+void tenths(const uint32_t value, char* out, const size_t size) {
+  snprintf(out, size, tr(STR_STATS_DECIMAL), static_cast<unsigned>(value / 10), static_cast<unsigned>(value % 10));
+}
+
+void sessionCount(const uint32_t count, char* out, const size_t size) {
+  if (count == 1) {
+    snprintf(out, size, "%s", tr(STR_STATS_ONE_SESSION));
+  } else {
+    snprintf(out, size, tr(STR_STATS_SESSIONS_COUNT), static_cast<int>(count));
+  }
+}
+
+void lateDetail(const uint32_t seconds, char* out, const size_t size) {
+  char time[32];
+  char from[16];
+  char to[16];
+  duration(seconds, time, sizeof(time));
+  clockTime(stats::LATE_START_HOUR * 60, from, sizeof(from));
+  clockTime(stats::LATE_END_HOUR * 60, to, sizeof(to));
+  snprintf(out, size, tr(STR_STATS_LATE_DETAIL), time, from, to);
 }
 
 }  // namespace statstext

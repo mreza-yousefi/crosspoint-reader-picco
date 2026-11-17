@@ -25,5 +25,11 @@ void clockTime(int minuteOfDay, char* out, size_t size);
 int minuteOfDay(uint32_t utc, int16_t tzOffsetMin);
 // Translated style label; "-" for None.
 const char* styleName(stats::ReadingStyle style);
+// A value in tenths: "3.5".
+void tenths(uint32_t value, char* out, size_t size);
+// "1 session", "12 sessions".
+void sessionCount(uint32_t count, char* out, size_t size);
+// Late-night time: "1 h 05 min between 23:00 and 04:00".
+void lateDetail(uint32_t seconds, char* out, size_t size);
 
 }  // namespace statstext

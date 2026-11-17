@@ -337,6 +337,7 @@ bool LogReplay::feed(const uint8_t* record, const size_t size, SessionRecord& ou
       if (!open || !readRawRecord(record, size, &turn, sizeof(turn))) return false;
       lastMs = std::max(lastMs, turn.tMs);
       const auto result = clock.turn(turn.tMs, turn.kind, replayPos(turn.spine, turn.offset));
+      turnResult = result;
       if (result.charsKnown) {
         rec.charsRead += result.chars;
         rec.learnedMs += result.countedMs;
@@ -579,7 +580,7 @@ void bucketDays(const Range range, const int32_t bucket, int32_t& firstDay, int3
   firstDay = lastDay = bucket;
 }
 
-void addToHourGrid(uint32_t* grid, const SessionRecord& session) {
+void spreadOverHours(const SessionRecord& session, const HourShareFn fn, void* ctx) {
   if (!hasWallTime(session) || session.activeSec == 0) return;
   const int64_t start = static_cast<int64_t>(session.startUtc) + static_cast<int64_t>(session.tzOffsetMin) * 60;
   // A day or longer is not one sitting: all of it goes to the start hour.
@@ -591,11 +592,19 @@ void addToHourGrid(uint32_t* grid, const SessionRecord& session) {
     const uint32_t share =
         next == end ? left : std::min<uint32_t>(left, static_cast<uint32_t>(session.activeSec * (next - t) / length));
     const int32_t day = floorDiv(t, 86400);
-    const int hour = static_cast<int>((t - static_cast<int64_t>(day) * 86400) / 3600);
-    grid[weekday(day) * 24 + hour] += share;
+    fn(ctx, day, static_cast<int>((t - static_cast<int64_t>(day) * 86400) / 3600), share);
     left -= share;
     t = next;
   }
+}
+
+void addToHourGrid(uint32_t* grid, const SessionRecord& session) {
+  spreadOverHours(
+      session,
+      [](void* ctx, const int32_t day, const int hour, const uint32_t sec) {
+        static_cast<uint32_t*>(ctx)[weekday(day) * 24 + hour] += sec;
+      },
+      grid);
 }
 
 int gridShade(const uint32_t value, const uint32_t max) {

@@ -5,8 +5,9 @@
 #include "activities/UiTabListActivity.h"
 #include "stats/StatsQueries.h"
 
-// One book's reading statistics. Summary: totals, speed, style, time to finish, hide from the
-// stats, compare; Progress: position over the reading days; Sessions: the newest sessions.
+// One book's reading statistics. Summary: totals, speed, style, time to finish, lookups, late
+// nights, hide from the stats, what hooked me, compare; Progress: position over the reading days; Sessions: the newest
+// sessions.
 class ReadingStatsBookActivity final : public UiTabListActivity {
  public:
   ReadingStatsBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, uint16_t bookIndex);
@@ -29,8 +30,11 @@ class ReadingStatsBookActivity final : public UiTabListActivity {
     ROW_FINISH,
     ROW_POSITION,
     ROW_LOOKUPS,
+    ROW_LOOKUPS_PER_HOUR,
     ROW_DICTIONARY,
+    ROW_LATE,
     ROW_HIDDEN,
+    ROW_HOOKS,
     ROW_COMPARE,
     ROW_COUNT
   };
@@ -54,6 +58,7 @@ class ReadingStatsBookActivity final : public UiTabListActivity {
   void selectTab(int index);
   void toggleHidden();
   void openCompare();
+  void openHooks();
   void drawProgress(UiScreen& screen, freeink::ui::Rect area);
   static void provideSessionRow(void* ctx, uint16_t index, freeink::ui::ListItem& item);
 
@@ -62,6 +67,7 @@ class ReadingStatsBookActivity final : public UiTabListActivity {
   char title[sizeof(stats::BookRecord::title)] = {};
   stats::BookDetail detail;
   char rowValues[ROW_COUNT][32] = {};
+  char lateDetail[64] = {};
   freeink::ui::ListItem rows[ROW_COUNT]{};
   // Session row text for provideSessionRow; valid until its next call.
   char rowLabel[48] = {};

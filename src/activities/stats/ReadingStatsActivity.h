@@ -10,7 +10,7 @@
 // week, month and year. Chart tabs: the buttons walk the bars and page back in time at the
 // oldest one; touch taps a bar, the arrows or swipes left/right to page. A day bar opens
 // that day's sessions, a week or month bar its reading days. The Overview opens the book
-// lists and the weekday x hour grid.
+// lists, the weekday x hour grid, records, the year in review and speed trends.
 class ReadingStatsActivity final : public UiTabListActivity {
  public:
   // fromReader: pushed over a book (Back returns to it); otherwise opened from Home.
@@ -31,6 +31,9 @@ class ReadingStatsActivity final : public UiTabListActivity {
     ROW_BOOKS,
     ROW_HIDDEN,
     ROW_WHEN,
+    ROW_RECORDS,
+    ROW_YEAR_REVIEW,
+    ROW_SPEED,
     ROW_IGNORE_SHORT,
     ROW_COUNT
   };

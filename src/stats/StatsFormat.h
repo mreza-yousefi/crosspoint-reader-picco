@@ -75,12 +75,13 @@ enum EventKind : uint8_t {
 enum EndReason : uint8_t { END_EXIT = 1, END_SLEEP = 2, END_AUTO_SLEEP = 3, END_CRASH = 4 };
 
 enum SessionFlag : uint8_t {
-  SESSION_WALL_KNOWN = 1 << 0,    // startUtc is trusted wall time
-  SESSION_SHORT = 1 << 1,         // fails the short-open rule (isShortOpen)
-  SESSION_CRASHED = 1 << 2,       // closed by recovery, not by the reader
-  SESSION_LIGHT_ON = 1 << 3,      // frontlight on at session start
-  SESSION_FINISHED = 1 << 4,      // crossed FINISHED_BP or reached the end-of-book screen
-  SESSION_IDLE_TRIMMED = 1 << 5,  // ended by automatic sleep; the last stretch is already trimmed
+  SESSION_WALL_KNOWN = 1 << 0,       // startUtc is trusted wall time
+  SESSION_SHORT = 1 << 1,            // fails the short-open rule (isShortOpen)
+  SESSION_CRASHED = 1 << 2,          // closed by recovery, not by the reader
+  SESSION_LIGHT_ON = 1 << 3,         // frontlight on at session start
+  SESSION_FINISHED = 1 << 4,         // crossed FINISHED_BP or reached the end-of-book screen
+  SESSION_IDLE_TRIMMED = 1 << 5,     // ended by automatic sleep; the last stretch is already trimmed
+  SESSION_RECORDS_DROPPED = 1 << 6,  // the recorder's buffer was full: some raw records are missing
 };
 
 struct RawStart {
@@ -112,7 +113,9 @@ struct RawTurn {
   uint32_t tMs;  // since session start
   uint32_t offset;
   uint16_t paperPage;
-  uint16_t reserved2;
+  // Active time of the page dwell that ended, in 0.1 s (at most MAX_CAP_SEC fits); 0 = not known
+  // (logs written before it, where this was a reserved 0).
+  uint16_t dwellDs;
 };
 static_assert(sizeof(RawTurn) == 20);
 

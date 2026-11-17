@@ -10,6 +10,7 @@
 
 #include "MappedInputManager.h"
 #include "ReadingStatsBooksActivity.h"
+#include "ReadingStatsHooksActivity.h"
 #include "StatsText.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -50,8 +51,11 @@ void ReadingStatsBookActivity::onEnter() {
   rows[ROW_SPEED].label = tr(STR_STATS_SPEED);
   rows[ROW_POSITION].label = tr(STR_STATS_PROGRESS);
   rows[ROW_LOOKUPS].label = tr(STR_STATS_LOOKUPS);
+  rows[ROW_LOOKUPS_PER_HOUR].label = tr(STR_STATS_LOOKUPS_PER_HOUR);
   rows[ROW_DICTIONARY].label = tr(STR_STATS_DICTIONARY_TIME);
+  rows[ROW_LATE].label = tr(STR_STATS_LATE_NIGHTS);
   rows[ROW_HIDDEN].label = tr(STR_HIDE_FROM_STATS);
+  rows[ROW_HOOKS].label = tr(STR_STATS_WHAT_HOOKED_ME);
   rows[ROW_COMPARE].label = tr(STR_STATS_COMPARE);
   {
     RenderLock lock;
@@ -124,7 +128,19 @@ void ReadingStatsBookActivity::formatSummary() {
   snprintf(rowValues[ROW_POSITION], sizeof(rowValues[ROW_POSITION]), "%u%%",
            static_cast<unsigned>(std::min<uint16_t>(t.lastPercentBp, stats::END_OF_BOOK_BP) / 100));
   snprintf(rowValues[ROW_LOOKUPS], sizeof(rowValues[ROW_LOOKUPS]), "%u", static_cast<unsigned>(detail.agg.lookups));
+  if (t.totalActiveSec > 0) {
+    statstext::tenths(stats::lookupsPerHourTenths(detail.agg.lookups, t.totalActiveSec),
+                      rowValues[ROW_LOOKUPS_PER_HOUR], sizeof(rowValues[ROW_LOOKUPS_PER_HOUR]));
+  } else {
+    set(ROW_LOOKUPS_PER_HOUR, "-");
+  }
   setDuration(ROW_DICTIONARY, detail.agg.dictSec);
+  statstext::sessionCount(detail.lateSessions, rowValues[ROW_LATE], sizeof(rowValues[ROW_LATE]));
+  rows[ROW_LATE].subtitle = nullptr;
+  if (detail.lateSessions > 0) {
+    statstext::lateDetail(detail.lateSec, lateDetail, sizeof(lateDetail));
+    rows[ROW_LATE].subtitle = lateDetail;
+  }
   for (int i = 0; i < ROW_HIDDEN; ++i) rows[i].value = rowValues[i];
 }
 
@@ -176,7 +192,19 @@ void ReadingStatsBookActivity::activateIndex(const int index) {
     toggleHidden();
   } else if (index == ROW_COMPARE) {
     openCompare();
+  } else if (index == ROW_HOOKS) {
+    openHooks();
   }
+}
+
+void ReadingStatsBookActivity::openHooks() {
+  app.clearTapFlash();
+  auto hooks = makeUniqueNoThrow<ReadingStatsHooksActivity>(renderer, mappedInput, bookIndex);
+  if (!hooks) {
+    LOG_ERR("STATS", "OOM: chapter stats");
+    return;
+  }
+  startActivityForResult(std::move(hooks), [this](const ActivityResult&) { requestUpdate(); });
 }
 
 void ReadingStatsBookActivity::toggleHidden() {
@@ -222,7 +250,7 @@ void ReadingStatsBookActivity::drawFooter() {
   const char* confirm = "";
   if (ring == 0 || (tab == TAB_SUMMARY && ring - 1 == ROW_HIDDEN)) {
     confirm = tr(STR_TOGGLE);
-  } else if (tab == TAB_SUMMARY && ring - 1 == ROW_COMPARE) {
+  } else if (tab == TAB_SUMMARY && (ring - 1 == ROW_COMPARE || ring - 1 == ROW_HOOKS)) {
     confirm = tr(STR_OPEN);
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirm, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

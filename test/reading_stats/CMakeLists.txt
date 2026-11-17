@@ -1,6 +1,8 @@
 add_executable(ReadingStatsTest
   ReadingStatsTest.cpp
+  StatsInsightsTest.cpp
   ${REPO_ROOT}/src/stats/StatsLogic.cpp
+  ${REPO_ROOT}/src/stats/StatsInsights.cpp
 )
 
 target_include_directories(ReadingStatsTest PRIVATE

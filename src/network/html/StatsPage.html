@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reading Stats - CrossPoint Reader</title>
+    <link rel="stylesheet" href="/assets/web.css" />
+    <link rel="icon" type="image/svg+xml" href="/assets/crosspoint-icon.svg" />
+    <style>
+      .seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+      .seg button {
+        background: var(--card-bg); color: var(--font-color); border: 1px solid var(--control-border);
+        border-radius: 8px; padding: 6px 12px; font-size: 14px;
+      }
+      .seg button.active { background: var(--button-bg); color: var(--button-text); border-color: var(--button-bg); }
+      .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+      .kpi { border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 12px; }
+      .kpi span { display: block; color: var(--label-color); font-size: 13px; }
+      .kpi b { font-size: 20px; }
+      .chart { width: 100%; height: auto; display: block; margin: 8px 0 16px; }
+      .chart .bar { fill: var(--accent-color); }
+      .chart .bar.now { fill: var(--warning-color); }
+      .chart .cell { fill: var(--accent-color); }
+      .chart .line { fill: none; stroke: var(--accent-color); stroke-width: 2.5; }
+      .chart .area { fill: var(--accent-color-10); }
+      .chart text { fill: var(--muted-color); font-size: 12px; }
+      .chart .rule { stroke: var(--border-color); }
+      .chart .hit { fill: transparent; cursor: pointer; }
+      .chart-note { min-height: 1.4em; margin: -8px 0 12px; }
+      .table-wrap { overflow-x: auto; }
+      .stats-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      .stats-table th, .stats-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border-color); vertical-align: top; }
+      .stats-table th { color: var(--label-color); font-weight: 600; white-space: nowrap; }
+      .stats-table th[data-sort] { cursor: pointer; }
+      .stats-table .num { text-align: right; white-space: nowrap; }
+      .stats-table tr.link { cursor: pointer; }
+      .stats-table tr.link:hover { background: var(--accent-color-10); }
+      .stats-table tr.dim td { color: var(--muted-color); }
+      .muted { color: var(--muted-color); font-size: 13px; }
+      .tag { font-size: 12px; border: 1px solid var(--border-color); border-radius: 4px; padding: 0 5px; margin-left: 6px; color: var(--muted-color); white-space: nowrap; }
+      .meter { height: 6px; background: var(--accent-color); border-radius: 3px; min-width: 1px; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+      .back-link { cursor: pointer; color: var(--accent-color); }
+      .card h3 { margin: 20px 0 4px; font-size: 16px; }
+      @media (max-width: 640px) { .kpi b { font-size: 17px; } .stats-table { font-size: 13px; } }
+    </style>
+  </head>
+  <body class="web-ui">
+    <!--#include file="shared/Header.html.inc" -->
+    <main class="page-content">
+      <div class="card">
+        <h2>Reading Stats</h2>
+        <div class="seg" id="tabs">
+          <button data-tab="overview">Overview</button>
+          <button data-tab="calendar">Calendar</button>
+          <button data-tab="hours">When I Read</button>
+          <button data-tab="books">Books</button>
+          <button data-tab="records">Records</button>
+          <button data-tab="year">Year in Review</button>
+          <button data-tab="speed">Speed</button>
+          <button data-tab="export">Export</button>
+        </div>
+        <div id="view"><p class="muted">Loading...</p></div>
+      </div>
+    </main>
+    <!--#include file="shared/Footer.html.inc" -->
+    <script>
+      const MS_DAY = 86400000;
+      const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const STYLES = { stalled: 'Stalled', binge: 'Binge', snacking: 'Snacking', steady: 'Steady', intermittent: 'Intermittent' };
+      const PAPER_PAGE_CHARS = 1800;
+      const SUMMARY_URL = '/api/stats/summary';
+      const view = document.getElementById('view');
+      const cache = {};
+      let summary = null;
+      let tab = 'overview';
+      let calRange = 'day';
+      let calBack = 0;
+      let hoursRange = '30';
+      let bookSort = 'last';
+      let bookFilter = '';
+      let yearShown = 0;
+      let renderSeq = 0;
+      let lastRender = null;
+      let lastWidth = 0;
+
+      function esc(s) {
+        return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+      }
+      // Successful replies are kept for the page's life; a failed one is asked again next time.
+      function getJson(url) {
+        if (cache[url]) return Promise.resolve(cache[url]);
+        return fetch(url).then((r) => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then((body) => {
+              throw new Error((body.error || 'HTTP ' + r.status) + ' (' + url + ')');
+            });
+          }
+          return r.json();
+        }).then((data) => {
+          cache[url] = data;
+          return data;
+        });
+      }
+      function errorHtml(e) {
+        return '<p class="muted">Could not load the statistics: ' + esc(e.message) + '</p>';
+      }
+      // Every view goes through here: the summary first (asked again if it failed), then fn(ok), where
+      // ok() is false once a newer render has started, so a late reply does not overwrite it.
+      function render(fn) {
+        const seq = ++renderSeq;
+        const ok = () => seq === renderSeq;
+        lastRender = fn;
+        lastWidth = view.clientWidth;
+        // Export needs no data, so its links work even when the summary fails.
+        const needsSummary = fn !== renderExport;
+        return (needsSummary ? getJson(SUMMARY_URL) : Promise.resolve(summary)).then((s) => {
+          summary = s;
+          if (ok()) return fn(ok);
+        }).catch((e) => {
+          if (ok()) view.innerHTML = errorHtml(e);
+        });
+      }
+      function dur(sec) {
+        const min = Math.round(sec / 60);
+        const h = Math.floor(min / 60);
+        const m = min % 60;
+        return h > 0 ? h + ' h ' + (m < 10 ? '0' : '') + m + ' min' : m + ' min';
+      }
+      function shortDur(sec) {
+        if (sec < 3600) return Math.round(sec / 60) + 'm';
+        const h = sec / 3600;
+        return (h < 10 ? h.toFixed(1) : Math.round(h)) + 'h';
+      }
+      function dateOf(day) { return new Date(day * MS_DAY); }
+      function fmtDay(day) {
+        return dateOf(day).toLocaleDateString(undefined, { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric' });
+      }
+      function weekOf(day) { return Math.floor((day + 3) / 7); }
+      function monthOf(day) { const d = dateOf(day); return d.getUTCFullYear() * 12 + d.getUTCMonth(); }
+      function yearOf(day) { return dateOf(day).getUTCFullYear(); }
+      function clock(minute) { const h = Math.floor(minute / 60); const m = minute % 60; return h + ':' + (m < 10 ? '0' : '') + m; }
+      function pct(bp) { return (bp / 100).toFixed(bp % 100 ? 1 : 0) + '%'; }
+      function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+      function kpis(items) {
+        return '<div class="kpis">' + items.map((i) => '<div class="kpi"><span>' + esc(i[0]) + '</span><b>' + esc(i[1]) + '</b></div>').join('') + '</div>';
+      }
+      function rows(items) {
+        return '<div class="table-wrap"><table class="stats-table"><tbody>' + items.map((i) =>
+          '<tr><th>' + esc(i[0]) + '</th><td>' + i[1] + '</td></tr>').join('') + '</tbody></table></div>';
+      }
+      function seg(id, options, current) {
+        return '<div class="seg" id="' + id + '">' + options.map((o) =>
+          '<button data-v="' + esc(o[0]) + '"' + (String(o[0]) === String(current) ? ' class="active"' : '') + '>' + esc(o[1]) + '</button>').join('') + '</div>';
+      }
+      function onSeg(id, fn) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', (e) => { if (e.target.dataset.v !== undefined) fn(e.target.dataset.v); });
+      }
+      function niceMax(v) {
+        if (v <= 0) return 1;
+        const p = Math.pow(10, Math.floor(Math.log10(v)));
+        const f = v / p;
+        return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+      }
+      // Chart width in px of the view, so one SVG unit is one pixel and the text keeps its size.
+      function chartWidth() { return Math.max(280, Math.min(view.clientWidth || 800, 1100)); }
+      // The line under a chart that shows the tapped bar's or cell's value.
+      function chartNote(hint) { return '<p class="chart-note muted">' + esc(hint) + '</p>'; }
+
+      // Bar chart: values, x labels, values for a tap; fmt formats axis values; now marks the last bar.
+      function barChart(values, labels, titles, fmt, now) {
+        const n = values.length;
+        const W = chartWidth(), H = Math.round(Math.min(280, Math.max(200, W * 0.33))), L = 44, B = 24, T = 8;
+        const max = niceMax(Math.max.apply(null, values.concat([0])));
+        const step = (W - L) / Math.max(n, 1);
+        const every = Math.ceil(n / Math.max(2, Math.floor((W - L) / 56)));
+        let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img">';
+        for (let g = 0; g <= 4; g++) {
+          const y = T + (H - B - T) * (1 - g / 4);
+          svg += '<line class="rule" x1="' + L + '" x2="' + W + '" y1="' + y + '" y2="' + y + '"/>';
+          svg += '<text x="' + (L - 6) + '" y="' + (y + 4) + '" text-anchor="end">' + esc(fmt(max * g / 4)) + '</text>';
+        }
+        values.forEach((v, i) => {
+          const h = (H - B - T) * v / max;
+          const x = L + i * step;
+          svg += '<rect class="bar' + (now && i === n - 1 ? ' now' : '') + '" x="' + (x + step * 0.15).toFixed(1) + '" y="' + (H - B - h).toFixed(1) +
+            '" width="' + (step * 0.7).toFixed(1) + '" height="' + Math.max(h, 0).toFixed(1) + '"/>';
+          svg += '<rect class="hit" data-t="' + esc(titles[i]) + '" x="' + x.toFixed(1) + '" y="' + T + '" width="' + step.toFixed(1) + '" height="' +
+            (H - T) + '"><title>' + esc(titles[i]) + '</title></rect>';
+          if (i % every === 0) {
+            svg += '<text x="' + (x + step / 2).toFixed(1) + '" y="' + (H - 7) + '" text-anchor="middle">' + esc(labels[i]) + '</text>';
+          }
+        });
+        return svg + '</svg>' + chartNote('Tap a bar for its value.');
+      }
+
+      function dayTotals() {
+        const map = new Map();
+        summary.days.forEach((d) => map.set(d[0], d));
+        return map;
+      }
+      // Active seconds per bucket of a range, ending at the bucket of today - back * count.
+      function buckets(range, count, back) {
+        const keyOf = { day: (d) => d, week: weekOf, month: monthOf, year: yearOf }[range];
+        const last = keyOf(summary.today) - back * count;
+        const first = last - count + 1;
+        const values = new Array(count).fill(0);
+        summary.days.forEach((d) => {
+          const k = keyOf(d[0]);
+          if (k >= first && k <= last) values[k - first] += d[1];
+        });
+        return { first: first, values: values };
+      }
+      function bucketLabel(range, key, long) {
+        if (range === 'day') return long ? fmtDay(key) : dateOf(key).getUTCDate() + ' ' + MONTHS[dateOf(key).getUTCMonth()];
+        if (range === 'week') return (long ? 'Week of ' : '') + fmtDay(key * 7 - 3);
+        if (range === 'month') return MONTHS[key % 12] + ' ' + (long ? Math.floor(key / 12) : String(Math.floor(key / 12)).slice(2));
+        return String(key);
+      }
+
+      function renderOverview() {
+        const s = summary;
+        const known = s.clockKnown;
+        let html = kpis([
+          ['Today', known ? dur(s.todaySec) : '-'],
+          ['This week', known ? dur(s.weekSec) : '-'],
+          ['This month', known ? dur(s.monthSec) : '-'],
+          ['This year', known ? dur(s.yearSec) : '-'],
+          ['Total', dur(s.totalSec)],
+          ['Current streak', known ? plural(s.currentStreak, 'day') : '-'],
+          ['Longest streak', plural(s.longestStreak, 'day')],
+          ['Finished this year', known ? String(s.finishedThisYear) : '-'],
+        ]);
+        if (!known) html += '<p class="muted">The reader\'s clock is not set: the calendar ends at the last day with reading.</p>';
+        if (s.undatedSec > 0) html += '<p class="muted">' + esc(dur(s.undatedSec)) + ' of reading without a known date is in Total only.</p>';
+        const b = buckets('day', 30, 0);
+        html += '<h3>Last 30 days</h3>' + barChart(b.values, b.values.map((v, i) => bucketLabel('day', b.first + i, false)),
+          b.values.map((v, i) => bucketLabel('day', b.first + i, true) + ': ' + dur(v)), shortDur, known);
+        html += '<p class="muted">Short opens are ' + (s.ignoreShortOpens ? 'left out' : 'counted') +
+          ' (Ignore Short Opens on the reader). Hidden books are not in the calendar.</p>';
+        view.innerHTML = html;
+      }
+
+      function renderCalendar() {
+        const counts = { day: 60, week: 52, month: 24, year: 0 };
+        let count = counts[calRange];
+        if (calRange === 'year') {
+          const firstYear = summary.days.length ? yearOf(summary.days[0][0]) : yearOf(summary.today);
+          count = Math.max(5, yearOf(summary.today) - firstYear + 1);
+        }
+        const b = buckets(calRange, count, calBack);
+        const total = b.values.reduce((a, v) => a + v, 0);
+        let html = seg('calRange', [['day', 'Days'], ['week', 'Weeks'], ['month', 'Months'], ['year', 'Years']], calRange);
+        html += '<div class="toolbar"><button id="older" class="btn-small">Older</button><button id="newer" class="btn-small"' +
+          (calBack === 0 ? ' disabled' : '') + '>Newer</button><span class="muted">' + esc(bucketLabel(calRange, b.first, true)) +
+          ' - ' + esc(bucketLabel(calRange, b.first + count - 1, true)) + ': ' + esc(dur(total)) + '</span></div>';
+        html += barChart(b.values, b.values.map((v, i) => bucketLabel(calRange, b.first + i, false)),
+          b.values.map((v, i) => bucketLabel(calRange, b.first + i, true) + ': ' + dur(v)), shortDur, calBack === 0 && summary.clockKnown);
+        if (calRange === 'day') {
+          const map = dayTotals();
+          const list = [];
+          for (let i = count - 1; i >= 0; i--) {
+            const d = map.get(b.first + i);
+            if (d) list.push('<tr><td>' + esc(fmtDay(d[0])) + '</td><td class="num">' + esc(dur(d[1])) + '</td><td class="num">' + d[2] +
+              '</td><td class="num">' + d[3] + '</td><td class="num">' + d[4] + '</td></tr>');
+          }
+          if (list.length) {
+            html += '<div class="table-wrap"><table class="stats-table"><thead><tr><th>Day</th><th class="num">Time</th><th class="num">Sessions</th>' +
+              '<th class="num">Sittings</th><th class="num">Pages</th></tr></thead><tbody>' + list.join('') + '</tbody></table></div>';
+          }
+        }
+        view.innerHTML = html;
+        onSeg('calRange', (v) => { calRange = v; calBack = 0; render(renderCalendar); });
+        document.getElementById('older').onclick = () => { calBack++; render(renderCalendar); };
+        document.getElementById('newer').onclick = () => { if (calBack > 0) { calBack--; render(renderCalendar); } };
+      }
+
+      function hourGrid(grid) {
+        const W = chartWidth(), L = 40, T = 22, cw = (W - L) / 24, ch = Math.max(26, Math.min(36, cw * 1.4));
+        const max = Math.max.apply(null, grid.concat([1]));
+        const every = cw < 22 ? 6 : 3;
+        let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + (T + ch * 7 + 4) + '" role="img">';
+        for (let h = 0; h < 24; h += every) svg += '<text x="' + (L + h * cw + 2).toFixed(1) + '" y="14">' + h + ':00</text>';
+        for (let d = 0; d < 7; d++) {
+          svg += '<text x="0" y="' + (T + d * ch + ch / 2 + 4).toFixed(1) + '">' + WEEKDAYS[d] + '</text>';
+          for (let h = 0; h < 24; h++) {
+            const v = grid[d * 24 + h];
+            const t = WEEKDAYS[d] + ' ' + h + ':00-' + (h + 1) + ':00: ' + dur(v);
+            svg += '<rect class="cell" data-t="' + esc(t) + '" x="' + (L + h * cw + 1).toFixed(1) + '" y="' + (T + d * ch + 1).toFixed(1) + '" width="' +
+              (cw - 2).toFixed(1) + '" height="' + (ch - 2).toFixed(1) + '" rx="3" fill-opacity="' + (v ? 0.12 + 0.88 * v / max : 0.04).toFixed(2) +
+              '"><title>' + esc(t) + '</title></rect>';
+          }
+        }
+        return svg + '</svg>' + chartNote('Tap a cell for its value.');
+      }
+      function renderHours(ok) {
+        return getJson('/api/stats/grid?range=' + hoursRange).then((g) => {
+          if (!ok()) return;
+          const weekdays = new Array(7).fill(0);
+          const hours = new Array(24).fill(0);
+          g.grid.forEach((v, i) => { weekdays[Math.floor(i / 24)] += v; hours[i % 24] += v; });
+          let html = seg('hoursRange', [['30', 'Last 30 days'], ['365', 'Last 12 months'], ['all', 'All']], hoursRange);
+          if (!g.clockKnown) html += '<p class="muted">The reader\'s clock is not set: every range shows all reading.</p>';
+          html += hourGrid(g.grid);
+          html += '<h3>By weekday</h3>' + barChart(weekdays, WEEKDAYS, weekdays.map((v, i) => WEEKDAYS[i] + ': ' + dur(v)), shortDur, false);
+          html += '<h3>By hour</h3>' + barChart(hours, hours.map((v, i) => String(i)), hours.map((v, i) => i + ':00: ' + dur(v)), shortDur, false);
+          view.innerHTML = html;
+          onSeg('hoursRange', (v) => { hoursRange = v; render(renderHours); });
+        });
+      }
+
+      function bookRows(books) {
+        const sorters = {
+          title: (a, b) => a.title.localeCompare(b.title),
+          active: (a, b) => b.active - a.active,
+          last: (a, b) => b.lastUtc - a.lastUtc || b.book - a.book,
+          sessions: (a, b) => b.sessions - a.sessions,
+        };
+        const q = bookFilter.toLowerCase();
+        return books.filter((b) => !q || (b.title + ' ' + b.author).toLowerCase().indexOf(q) >= 0).sort(sorters[bookSort]);
+      }
+      function bookTable(list) {
+        if (!list.length) return '<p class="muted">No books.</p>';
+        return '<div class="table-wrap"><table class="stats-table"><thead><tr><th data-sort="title">Book</th><th class="num" data-sort="active">Time</th>' +
+          '<th class="num" data-sort="sessions">Sessions</th><th data-sort="last">Last read</th><th class="num">Position</th><th class="num">Speed</th>' +
+          '<th>Style</th></tr></thead><tbody>' +
+          list.map((b) => '<tr class="link' + (b.hidden ? ' dim' : '') + '" data-book="' + b.book + '"><td>' + esc(b.title || 'Unknown book') +
+            (b.hidden ? '<span class="tag">hidden</span>' : '') + (b.finished ? '<span class="tag">finished</span>' : '') +
+            (b.author ? '<br><span class="muted">' + esc(b.author) + '</span>' : '') + '</td><td class="num">' + esc(dur(b.active)) +
+            '</td><td class="num">' + b.sessions + '</td><td>' + esc(b.last || '-') + '</td><td class="num">' + pct(b.lastBp) +
+            '</td><td class="num">' + (b.pagesPerHour ? b.pagesPerHour + ' p/h' : '-') + '</td><td>' + esc(STYLES[b.style] || '-') + '</td></tr>').join('') +
+          '</tbody></table></div>';
+      }
+      function renderBooks(ok) {
+        return getJson('/api/stats/books').then((books) => {
+          if (!ok()) return;
+          view.innerHTML = '<div class="toolbar"><input id="bookFilter" type="search" placeholder="Filter by title or author" value="' + esc(bookFilter) +
+            '"><span class="muted" id="bookCount"></span></div><div id="bookTable"></div>';
+          // Typing redraws only the table, so the filter field keeps its focus.
+          const fill = () => {
+            const list = bookRows(books);
+            document.getElementById('bookCount').textContent = plural(list.length, 'book') + '. Hidden books are marked; their time is not in the calendar.';
+            const table = document.getElementById('bookTable');
+            table.innerHTML = bookTable(list);
+            table.querySelectorAll('th[data-sort]').forEach((th) => { th.onclick = () => { bookSort = th.dataset.sort; fill(); }; });
+            table.querySelectorAll('tr[data-book]').forEach((tr) => {
+              tr.onclick = () => render((ok2) => showBook(Number(tr.dataset.book), 'summary', ok2));
+            });
+          };
+          const filter = document.getElementById('bookFilter');
+          filter.oninput = () => { bookFilter = filter.value; fill(); };
+          fill();
+        });
+      }
+
+      function progressChart(points) {
+        if (points.length === 0) return '<p class="muted">No dated reading.</p>';
+        const W = chartWidth(), H = Math.round(Math.min(260, Math.max(200, W * 0.3))), L = 44, B = 24, T = 10;
+        const first = points[0][0];
+        const span = Math.max(points[points.length - 1][0] - first, 1);
+        const x = (day) => L + (W - L - 10) * (day - first) / span;
+        const y = (bp) => T + (H - B - T) * (1 - Math.min(bp, 10000) / 10000);
+        let path = 'M' + x(first).toFixed(1) + ' ' + y(points[0][1]).toFixed(1);
+        points.slice(1).forEach((p) => {
+          path += ' H' + x(p[0]).toFixed(1) + ' V' + y(p[1]).toFixed(1);
+        });
+        let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img">';
+        for (let g = 0; g <= 4; g++) {
+          const yy = y(g * 2500);
+          svg += '<line class="rule" x1="' + L + '" x2="' + W + '" y1="' + yy + '" y2="' + yy + '"/><text x="' + (L - 6) + '" y="' + (yy + 4) +
+            '" text-anchor="end">' + g * 25 + '%</text>';
+        }
+        svg += '<path class="line" d="' + path + '"/>';
+        points.forEach((p) => {
+          const t = fmtDay(p[0]) + ': ' + pct(p[1]);
+          svg += '<circle cx="' + x(p[0]).toFixed(1) + '" cy="' + y(p[1]).toFixed(1) + '" r="3.5" class="bar"/><circle class="hit" data-t="' + esc(t) +
+            '" cx="' + x(p[0]).toFixed(1) + '" cy="' + y(p[1]).toFixed(1) + '" r="10"><title>' + esc(t) + '</title></circle>';
+        });
+        svg += '<text x="' + L + '" y="' + (H - 6) + '">' + esc(fmtDay(first)) + '</text><text x="' + W + '" y="' + (H - 6) +
+          '" text-anchor="end">' + esc(fmtDay(points[points.length - 1][0])) + '</text>';
+        return svg + '</svg>' + chartNote('Tap a point for its value.');
+      }
+
+      function bookSummary(b) {
+        return rows([
+          ['Reading time', esc(dur(b.active))],
+          ['Sessions', b.sessions + ' (' + plural(b.sittings, 'sitting') + ')'],
+          ['Average session', b.sessions ? esc(dur(b.active / b.sessions)) : '-'],
+          ['First read', b.firstDay !== undefined ? esc(fmtDay(b.firstDay)) : '-'],
+          ['Last read', b.lastDay !== undefined ? esc(fmtDay(b.lastDay)) : '-'],
+          ['Reading style', esc(STYLES[b.style] || '-')],
+          ['Reading speed', b.pagesPerHour ? b.pagesPerHour + ' pages per hour' : '-'],
+          b.finished ? ['Finished', b.finishedDay !== undefined ? esc(fmtDay(b.finishedDay)) + (b.daysToFinish ? ' (' + plural(b.daysToFinish, 'day') + ')' : '') : 'Yes']
+            : ['Time to finish', b.secondsToFinish ? esc(dur(b.secondsToFinish)) : '-'],
+          ['Position', pct(b.positionBp) + (b.paperPages ? ' (page ' + b.paperPage + ' of ' + b.paperPages + ')' : '')],
+          ['Lookups', b.lookups + (b.active ? ' (' + (b.lookupsPerHourTenths / 10).toFixed(1) + ' per hour)' : '')],
+          ['Dictionary time', esc(dur(b.dictSec))],
+          ['Late nights', plural(b.lateSessions, 'session') + (b.lateSessions ? ', ' + esc(dur(b.lateSec)) + ' between 23:00 and 04:00' : '')],
+          ['Hidden from stats', b.hidden ? 'Yes' : 'No'],
+        ]);
+      }
+      function bookSessions(list) {
+        if (!list.length) return '<p class="muted">No sessions.</p>';
+        const flags = (s) => (s.counted ? '' : '<span class="tag">short</span>') + (s.finished ? '<span class="tag">finished</span>' : '') +
+          (s.live ? '<span class="tag">now</span>' : '');
+        return '<p class="muted">' + plural(list.length, 'session') + ', newest first. Short opens are listed but not counted.</p>' +
+          '<div class="table-wrap"><table class="stats-table"><thead><tr><th>Start</th><th class="num">Active</th><th class="num">Length</th>' +
+          '<th class="num">Pages</th><th class="num">Progress</th><th class="num">Lookups</th><th></th></tr></thead><tbody>' +
+          list.slice().reverse().map((s) => '<tr' + (s.counted ? '' : ' class="dim"') + '><td>' + esc(s.start || 'Unknown time') + '</td><td class="num">' +
+            esc(dur(s.active)) + '</td><td class="num">' + esc(dur(s.dur)) + '</td><td class="num">' + s.pages + '</td><td class="num">' + pct(s.startBp) +
+            ' - ' + pct(s.endBp) + '</td><td class="num">' + s.lookups + '</td><td>' + flags(s) + '</td></tr>').join('') + '</tbody></table></div>';
+      }
+      function bookChapters(h) {
+        if (!h.chapters.length) return '<p class="muted">No chapter data: the book has no reading log yet.</p>';
+        const name = (i) => i < 0 ? '-' : esc(h.chapters[i].title || 'Chapter ' + (h.chapters[i].spine + 1));
+        const hl = h.highlights;
+        const c = h.chapters;
+        const pages = (chars) => Math.round(chars / PAPER_PAGE_CHARS);
+        let html = rows([
+          ['One more chapter', h.oneMoreSessions + ' of ' + plural(h.sessions, 'session')],
+          ['Most time', hl.mostTime < 0 ? '-' : name(hl.mostTime) + ' (' + esc(dur(c[hl.mostTime].activeMs / 1000)) + ')'],
+          ['Fastest', hl.fastest < 0 ? '-' : name(hl.fastest) + ' (' + c[hl.fastest].pagesPerHour + ' p/h)'],
+          ['Slowest', hl.slowest < 0 ? '-' : name(hl.slowest) + ' (' + c[hl.slowest].pagesPerHour + ' p/h)'],
+          ['Most starts', hl.mostStarts < 0 ? '-' : name(hl.mostStarts) + ' (' + c[hl.mostStarts].starts + ')'],
+          ['Most stops', hl.mostEnds < 0 ? '-' : name(hl.mostEnds) + ' (' + c[hl.mostEnds].ends + ')'],
+          ['Last stop', name(h.lastStop)],
+          ['Most re-read', hl.mostReread < 0 ? '-' : name(hl.mostReread) + ' (' + plural(pages(c[hl.mostReread].rereadChars), 'page') + ')'],
+          ['Most turns back', hl.mostBack < 0 ? '-' : name(hl.mostBack) + ' (' + c[hl.mostBack].back + ')'],
+          ['Most pauses', hl.mostPauses < 0 ? '-' : name(hl.mostPauses) + ' (' + c[hl.mostPauses].pauses + ')'],
+          ['Most lookups', hl.mostLookups < 0 ? '-' : name(hl.mostLookups) + ' (' + c[hl.mostLookups].lookups + ')'],
+        ]);
+        const maxMs = Math.max.apply(null, c.map((x) => x.activeMs).concat([1]));
+        html += '<h3>Chapters</h3><div class="table-wrap"><table class="stats-table"><thead><tr><th>Chapter</th><th class="num">Time</th><th></th>' +
+          '<th class="num">Speed</th><th class="num">Starts</th><th class="num">Stops</th><th class="num">Back</th><th class="num">Pauses</th>' +
+          '<th class="num">Lookups</th><th class="num">One more</th><th class="num">Re-read</th></tr></thead><tbody>' +
+          c.map((x, i) => '<tr><td>' + name(i) + '</td><td class="num">' + esc(dur(x.activeMs / 1000)) + '</td><td style="width:20%"><div class="meter" style="width:' +
+            (100 * x.activeMs / maxMs).toFixed(1) + '%"></div></td><td class="num">' + (x.pagesPerHour ? x.pagesPerHour + ' p/h' : '-') + '</td><td class="num">' +
+            x.starts + '</td><td class="num">' + x.ends + '</td><td class="num">' + x.back + '</td><td class="num">' + x.pauses + '</td><td class="num">' +
+            x.lookups + '</td><td class="num">' + x.oneMore + '</td><td class="num">' + pages(x.rereadChars) + '</td></tr>').join('') + '</tbody></table></div>';
+        return html;
+      }
+      function showBook(index, part, ok) {
+        tab = 'books';
+        markTab();
+        return getJson('/api/stats/book?book=' + index).then((b) => {
+          if (!ok()) return;
+          let html = '<p><span class="back-link" id="backToBooks">&larr; All books</span></p><h3>' + esc(b.title || 'Unknown book') +
+            (b.hidden ? '<span class="tag">hidden</span>' : '') + '</h3>' + (b.author ? '<p class="muted">' + esc(b.author) + '</p>' : '');
+          html += seg('bookPart', [['summary', 'Summary'], ['progress', 'Progress'], ['sessions', 'Sessions'], ['chapters', 'Chapters']], part);
+          html += '<div id="bookPartView"><p class="muted">' + (part === 'chapters' ? 'Replaying the book\'s log...' : 'Loading...') + '</p></div>';
+          view.innerHTML = html;
+          document.getElementById('backToBooks').onclick = () => render(renderBooks);
+          onSeg('bookPart', (v) => render((ok2) => showBook(index, v, ok2)));
+          const target = document.getElementById('bookPartView');
+          let load;
+          if (part === 'summary') load = Promise.resolve(bookSummary(b));
+          if (part === 'progress') load = Promise.resolve(progressChart(b.progress));
+          if (part === 'sessions') load = getJson('/api/stats/sessions?book=' + index).then(bookSessions);
+          if (part === 'chapters') load = getJson('/api/stats/hooks?book=' + index).then(bookChapters);
+          // A failed part shows its error in place, under the book's title.
+          return load.then((h) => { if (ok()) target.innerHTML = h; }, (e) => { if (ok()) target.innerHTML = errorHtml(e); });
+        });
+      }
+
+      function renderRecords(ok) {
+        return getJson('/api/stats/records').then((r) => {
+          if (!ok()) return;
+          const ref = (x, fmt) => x ? fmt(x.value) + ' <span class="muted">' + esc(x.title || 'Unknown book') + (x.start ? ', ' + esc(x.start.slice(0, 10)) : '') + '</span>' : '-';
+          view.innerHTML = rows([
+            ['Longest session', ref(r.longestSession, (v) => esc(dur(v)))],
+            ['Longest sitting', ref(r.longestSitting, (v) => esc(dur(v)))],
+            ['Most in one day', r.mostDaySec ? esc(dur(r.mostDaySec)) + ' <span class="muted">' + esc(fmtDay(r.mostDay)) + '</span>' : '-'],
+            ['Most in one week', r.mostWeekSec ? esc(dur(r.mostWeekSec)) + ' <span class="muted">week of ' + esc(fmtDay(r.mostWeekStart)) + '</span>' : '-'],
+            ['Fastest book', ref(r.fastestBook, (v) => v + ' pages per hour')],
+            ['Longest streak', plural(r.longestStreak, 'day')],
+            ['Most lookups in a session', ref(r.mostLookups, String)],
+            ['Latest night', ref(r.latestNight, clock)],
+            ['Earliest morning', ref(r.earliestMorning, clock)],
+            ['Lookups per hour', r.activeSec ? (r.lookupsPerHourTenths / 10).toFixed(1) : '-'],
+            ['Late nights', plural(r.lateSessions, 'session') + (r.lateSessions ? ', ' + esc(dur(r.lateSec)) + ' between 23:00 and 04:00' : '')],
+          ]) + '<p class="muted">Records leave hidden books out.</p>';
+        });
+      }
+
+      function renderYear(ok) {
+        if (!summary.years.length) {
+          view.innerHTML = '<p class="muted">No reading with a known date yet.</p>';
+          return Promise.resolve();
+        }
+        if (!yearShown) yearShown = summary.years[0];
+        return getJson('/api/stats/year?year=' + yearShown).then((y) => {
+          if (!ok()) return;
+          let html = seg('yearPick', summary.years.map((v) => [v, String(v)]), yearShown);
+          html += kpis([
+            ['Total', dur(y.active)],
+            ['Sessions', String(y.sessions)],
+            ['Average session', y.sessions ? dur(y.active / y.sessions) : '-'],
+            ['Books finished', String(y.finished)],
+            ['Longest streak', plural(y.longestStreak, 'day')],
+            ['Lookups', y.lookups + (y.active ? ' (' + (y.lookupsPerHourTenths / 10).toFixed(1) + '/h)' : '')],
+            ['Late nights', plural(y.lateSessions, 'session')],
+            ['Busiest month', y.busiestMonth < 0 ? '-' : MONTHS[y.busiestMonth]],
+            ['Busiest weekday', y.busiestWeekday < 0 ? '-' : WEEKDAYS[y.busiestWeekday]],
+            ['Favourite hour', y.favouriteHour < 0 ? '-' : y.favouriteHour + ':00'],
+          ]);
+          html += '<h3>By month</h3>' + barChart(y.months, MONTHS, y.months.map((v, i) => MONTHS[i] + ': ' + dur(v)), shortDur, false);
+          html += '<h3>By weekday</h3>' + barChart(y.weekdays, WEEKDAYS, y.weekdays.map((v, i) => WEEKDAYS[i] + ': ' + dur(v)), shortDur, false);
+          html += '<h3>By hour</h3>' + barChart(y.hours, y.hours.map((v, i) => String(i)), y.hours.map((v, i) => i + ':00: ' + dur(v)), shortDur, false);
+          html += '<h3>Top books</h3>' + (y.topBooks.length ? rows(y.topBooks.map((t, i) => [(i + 1) + '.', esc(t.title || 'Unknown book') + ' <span class="muted">' + esc(dur(t.sec)) + '</span>'])) : '<p class="muted">-</p>');
+          const styles = Object.keys(STYLES).filter((k) => y.styles[k] > 0);
+          html += '<h3>Reading styles (today)</h3>' + (styles.length ? rows(styles.map((k) => [STYLES[k], plural(y.styles[k], 'book')])) : '<p class="muted">-</p>');
+          view.innerHTML = html;
+          onSeg('yearPick', (v) => { yearShown = Number(v); render(renderYear); });
+        });
+      }
+
+      function renderSpeed(ok) {
+        return getJson('/api/stats/speed').then((s) => {
+          if (!ok()) return;
+          const pph = (v) => String(Math.round(v));
+          const title = (label, c) => label + ': ' + (c[0] ? c[0] + ' pages per hour, ' + dur(c[1]) + ' measured' : 'not enough measured reading');
+          const monthLabels = s.months.map((c, i) => MONTHS[(s.firstMonth + i) % 12]);
+          const parts = ['Morning', 'Afternoon', 'Evening', 'Night'];
+          let html = '<p class="muted">Pages per hour (1,800 characters per page), from 5 minutes of measured reading.</p>';
+          html += '<h3>By month</h3>' + barChart(s.months.map((c) => c[0]), monthLabels,
+            s.months.map((c, i) => title(MONTHS[(s.firstMonth + i) % 12] + ' ' + Math.floor((s.firstMonth + i) / 12), c)), pph, false);
+          html += '<h3>By time of day</h3>' + barChart(s.dayParts.map((c) => c[0]), parts, s.dayParts.map((c, i) => title(parts[i], c)), pph, false);
+          html += '<p class="muted">Morning 05-12, afternoon 12-17, evening 17-22, night 22-05.</p>';
+          if (s.fonts.length) {
+            html += '<h3>By font size</h3>' + barChart(s.fonts.map((f) => f.pagesPerHour), s.fonts.map((f) => f.size + ' pt'),
+              s.fonts.map((f) => title(f.size + ' pt', [f.pagesPerHour, f.measuredSec])), pph, false);
+          }
+          view.innerHTML = html;
+        });
+      }
+
+      function renderExport() {
+        view.innerHTML = '<p>Download your reading statistics as CSV files for a spreadsheet.</p><p>' +
+          '<a class="btn-add" href="/api/stats/sessions.csv" download>Sessions (CSV)</a> ' +
+          '<a class="btn-add" href="/api/stats/books.csv" download>Books (CSV)</a></p>' +
+          '<p class="muted">Sessions: one row per ended session, with local start and end times and the time zone offset in minutes. ' +
+          'Books: one row per book with reading, and hidden books. Both include hidden books, marked in the hidden column. ' +
+          'The reader serves this page and the files only while File Transfer or Calibre Wireless is on, to devices on the same network.</p>';
+      }
+
+      const renderers = { overview: renderOverview, calendar: renderCalendar, hours: renderHours, books: renderBooks,
+        records: renderRecords, year: renderYear, speed: renderSpeed, export: renderExport };
+      function markTab() {
+        document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+      }
+      function show(name) {
+        tab = name;
+        markTab();
+        history.replaceState(null, '', '#' + name);
+        return render(renderers[name]);
+      }
+      document.getElementById('tabs').addEventListener('click', (e) => { if (e.target.dataset.tab) show(e.target.dataset.tab); });
+      // A tapped bar, cell or point shows its value in the line under its chart.
+      view.addEventListener('click', (e) => {
+        const hit = e.target.closest ? e.target.closest('[data-t]') : null;
+        if (!hit) return;
+        const note = hit.closest('svg').nextElementSibling;
+        if (note && note.classList.contains('chart-note')) note.textContent = hit.dataset.t;
+      });
+      // Charts are drawn for the view's width: redraw when it changes (phone rotated).
+      let resizeTimer = 0;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (lastRender && Math.abs(view.clientWidth - lastWidth) > 40) render(lastRender);
+        }, 250);
+      });
+      const start = location.hash.slice(1);
+      show(Object.prototype.hasOwnProperty.call(renderers, start) ? start : 'overview');
+    </script>
+  </body>
+</html>

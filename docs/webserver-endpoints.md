@@ -20,6 +20,7 @@ the IP address shown on the device screen.
 | `GET` | `/settings` | Web settings page |
 | `GET` | `/fonts` | SD-card font manager page |
 | `GET` | `/plugins` | Plugins page (web settings of SD-card plugins) |
+| `GET` | `/stats` | Reading Stats page (this fork); data from the [Reading Stats API](#reading-stats-api) |
 | `GET` | `/js/jszip.min.js` | JavaScript asset used by the file manager |
 | `GET` | `/js/epub-optimizer.js` | File manager EPUB optimizer, loaded with JSZip only when needed |
 | `GET` | `/js/plugin-host.js` | Browser plugin host shared by the Plugins, File Manager, and `/plugins-run` pages |
@@ -456,6 +457,127 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"index":0}' \
   http://crosspoint.local/api/wifi/delete
+```
+
+## Reading Stats API
+
+Read-only data of the [reading statistics](reading-stats.md) (this fork), for the `/stats`
+page and for scripts. Every reply is streamed with chunked transfer encoding; lists are written
+row by row as they are read from the SD card. Each request first brings the summaries up to date
+(`ReadingStats::prepareSummaries()`), which can take a few seconds after a firmware update of the
+stats format. Days are local day numbers (days since 1970-01-01), times in seconds, positions in
+basis points (10000 = end-of-book screen), local times `YYYY-MM-DD HH:MM:SS` at the session's
+own offset. `book=` is the book's record number in `books.bin` (stable while the stats folder is
+kept, not after it is deleted). Errors: `400 {"error":"..."}` for a missing, empty or non-numeric
+argument, `404 {"error":"unknown book"}` for a book number the registry does not have (`book`,
+`hooks`, `sessions?book=`), `503 {"error":"out of memory"}`. The first request after Ignore Short
+Opens was changed rebuilds the summaries and can take a few seconds. A list stops being read when
+the client disconnects. The server allows cross-origin requests (CORS), so a page open in a browser
+on the same network can read these endpoints.
+
+### `GET /api/stats/summary`
+
+```bash
+curl http://crosspoint.local/api/stats/summary
+```
+
+```json
+{"days":[[20400,3600,2,1,15]],"clockKnown":true,"today":20409,"ignoreShortOpens":true,
+ "totalSec":93600,"undatedSec":0,"longestStreak":12,"todaySec":1800,"weekSec":5400,
+ "monthSec":36000,"yearSec":90000,"currentStreak":3,"finishedThisYear":4,"years":[2026,2025]}
+```
+
+| Field | Description |
+|-------|-------------|
+| `days` | Calendar days with reading, ascending: `[day, activeSec, sessions, sittings, pagesForward]` |
+| `clockKnown` | The reader's clock is trusted; without it, `today` is the last day with reading and the `todaySec`...`finishedThisYear` fields are left out |
+| `today` | Local day the charts end on |
+| `totalSec`, `undatedSec` | All counted reading, and the part without a known date (not in `days`) |
+| `longestStreak`, `currentStreak` | Days in a row with reading |
+| `years` | Years with reading, newest first (this year alone when there is none and the clock is set) |
+
+### `GET /api/stats/grid?range=30|365|all`
+
+`{"clockKnown":true,"grid":[...]}`: 168 active-second values, weekday (Monday first) x 24 + hour,
+over the last 30 or 365 days, or all (the default, and every range without a trusted clock).
+
+### `GET /api/stats/books`
+
+Every book with counted reading and every hidden book, in registry order:
+
+```json
+[{"book":0,"title":"Dune","author":"Frank Herbert","hidden":false,"active":36000,"sessions":20,
+  "sittings":15,"lastUtc":1763400000,"first":"2026-10-01","last":"2026-11-17","finished":false,
+  "finishedDate":"","lastBp":4520,"maxBp":4520,"pagesPerHour":38,"style":"steady"}]
+```
+
+`style` is `stalled`, `binge`, `snacking`, `steady`, `intermittent` or empty. `first`, `last`
+and `finishedDate` are local dates at the reader's time zone, empty when unknown.
+
+### `GET /api/stats/book?book=<n>`
+
+One book's page (`404` for an unknown book): `title`, `author`, `hidden`, `style`, `active`, `sessions`, `sittings`,
+`firstDay`/`lastDay` (when dated), `finished`, `finishedDay` (when known), `pagesPerHour`,
+`secondsToFinish`, `daysToFinish`, `positionBp`, `maxBp`, `paperPage`, `paperPages`, `lookups`,
+`lookupsPerHourTenths`, `dictSec`, `lateSessions`, `lateSec`, and `progress`: `[day, bp]` per
+reading day (at most 129 points).
+
+### `GET /api/stats/sessions[?book=<n>]`
+
+Every session in `sessions.bin` order (then the running one, `"live":true`), or one book's
+(`404` for an unknown book):
+
+```json
+[{"seq":42,"book":3,"utc":1763418600,"start":"2026-11-17 23:30:00","tz":60,"dur":3600,
+  "active":3000,"dict":120,"pages":15,"fwd":40,"back":2,"jumps":0,"lookups":3,"startBp":9850,
+  "endBp":10000,"chars":27000,"learnedMs":2400000,"font":12,"reason":"auto_sleep","flags":17,
+  "counted":true,"finished":true,"hidden":false,"live":false}]
+```
+
+`utc` is 0 and `start` empty without a known wall time; `tz` is minutes east of UTC; `counted`
+is false for a short open left out of the totals.
+
+### `GET /api/stats/hooks?book=<n>`
+
+What Hooked Me for one book (two passes over its raw log; can take a few seconds):
+`sessions`, `oneMoreSessions`, `lastStop` (chapter index or -1), `highlights` (chapter index or
+-1 for `mostTime`, `fastest`, `slowest`, `mostStarts`, `mostEnds`, `mostReread`, `mostBack`,
+`mostPauses`, `mostLookups`) and `chapters` in book order: `title` (empty without the book's
+cache), `spine`, `activeMs`, `pagesPerHour`, `starts`, `ends`, `pauses`, `back`, `oneMore`,
+`lookups`, `rereadChars`.
+
+### `GET /api/stats/records`
+
+Each record present is `{"value":N,"book":n,"title":"...","start":"local time or empty"}`:
+`longestSession`, `longestSitting` (seconds), `mostLookups`, `latestNight`, `earliestMorning`
+(local minute of the day), `fastestBook` (pages per hour). Also `mostDay`/`mostDaySec`,
+`mostWeekStart` (first day)/`mostWeekSec`, `longestStreak`, `lookups`, `activeSec`,
+`lookupsPerHourTenths`, `lateSessions`, `lateSec`. Hidden books are left out.
+
+### `GET /api/stats/year[?year=<y>]`
+
+The year in review (default: the newest year with reading; `404` without one; `400` for a year
+that is not a number from 1970 to 9999): `year`, `active`,
+`sessions`, `lookups`, `lookupsPerHourTenths`, `lateSessions`, `lateSec`, `longestStreak`,
+`finished`, `busiestMonth` (0-11), `busiestWeekday` (Monday = 0), `favouriteHour` (-1 when none),
+`months` (12), `weekdays` (7), `hours` (24) in active seconds, `styles` (books per style today)
+and `topBooks`: `[{"book":n,"title":"...","sec":N}]`.
+
+### `GET /api/stats/speed`
+
+`firstMonth` (year x 12 + month - 1 of the first of 12 months), `months` (12) and `dayParts`
+(morning, afternoon, evening, night) as `[pagesPerHour, measuredSec]`, and `fonts`:
+`[{"size":12,"pagesPerHour":38,"measuredSec":7200}]`. `pagesPerHour` is 0 below 5 minutes measured.
+
+### `GET /api/stats/sessions.csv`, `GET /api/stats/books.csv`
+
+Downloads (`Content-Disposition: attachment`, `text/csv; charset=utf-8`, starting with a UTF-8
+BOM; pandas: `encoding="utf-8-sig"`) named `reading-sessions.csv` and `reading-books.csv`. Titles
+and authors starting with `=`, `+`, `-`, `@`, TAB or CR get a leading `'`. Columns:
+[reading-stats.md](reading-stats.md#web-page-and-csv-export).
+
+```bash
+curl -O -J http://crosspoint.local/api/stats/sessions.csv
 ```
 
 ## WebSocket Upload

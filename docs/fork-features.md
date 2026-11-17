@@ -87,6 +87,7 @@ Details: [docs/reading-stats.md](reading-stats.md) (data, rules, formats) and [U
 - Hold a book on Home: **Hide from Stats** / **Show in Stats** keeps a test book out of the totals and charts; its data stays. **Reading Stats** in the same menu (Home, Library Recent view) and **Reading Stats for This Book** in the reader menu open the book page.
 - Page data is kept in RAM and written every 3 minutes and at the session end, never on the page-turn path; a reset loses at most the last 3 minutes. Clear Reading Cache does not delete the statistics; Home Backup includes them.
 - File dates on the SD card now come from the reader's clock (when it is set), so Home Backup sees files changed in place.
+- **Web page and CSV export**: while File Transfer is on, `/stats` (link **Reading Stats** in the web header) shows the Overview, larger Days/Weeks/Months/Years charts, the weekday x hour grid, the Books list (hidden books marked) with each book's summary, progress, all sessions and chapters, Records, Year in Review and Speed, from JSON endpoints under `/api/stats/`. **Export** downloads `reading-sessions.csv` and `reading-books.csv`. Replies are streamed from the stats files; the page is static, served from flash, and uses no external resources. Endpoints: [webserver-endpoints.md](webserver-endpoints.md#reading-stats-api).
 
 ## Sleep screen
 - Strip with "Battery at sleep N%" and "· Book N%". On USB power the first part reads "Charging N%" or "Charged N%".

@@ -142,6 +142,8 @@ bool countsInCalendar(const SessionRecord& session, bool ignoreShort, bool bookE
 // The session took the book across FINISHED_BP or to the end-of-book screen (SESSION_FINISHED).
 bool finishesBook(const SessionRecord& session);
 bool crossesFinish(uint16_t startPercentBp, uint16_t percentBp);
+// Paper pages moved forward (both positions known), as the day totals count them.
+uint16_t paperPagesForward(const SessionRecord& session);
 
 // --- Raw log ------------------------------------------------------------------------------
 // Reads up to n bytes into buf; returns the count, less than n at the end of the data.
@@ -226,8 +228,47 @@ struct Streaks {
   int current = 0;  // ends today, or yesterday when today has no reading yet
   int longest = 0;
 };
+// Streaks over days fed one by one in ascending order (days without active time are skipped).
+class StreakCounter {
+ public:
+  void add(const DayRecord& day);
+  Streaks result(int32_t today) const;
+
+ private:
+  int run = 0;
+  int longest = 0;
+  int32_t prev = 0;
+  bool hasPrev = false;
+};
 // days: ascending, each with active time.
 Streaks computeStreaks(const DayRecord* days, size_t count, int32_t today);
+
+// The Overview's values from the calendar days.
+struct Overview {
+  uint32_t todaySec = 0;  // today, this week (from Monday), month and year; 0 without a clock
+  uint32_t weekSec = 0;
+  uint32_t monthSec = 0;
+  uint32_t yearSec = 0;
+  uint32_t daysSec = 0;  // all days (Total adds the time without a date)
+  int32_t anchor = 0;    // the day the charts end on: today, or without a clock the last day
+  Streaks streaks;       // up to anchor
+};
+// Fed with the days in ascending order.
+class OverviewAccumulator {
+ public:
+  OverviewAccumulator(int32_t today, bool clockKnown);
+  void add(const DayRecord& day);
+  Overview result() const;
+
+ private:
+  Overview sums;
+  bool known;
+  int32_t weekStart = 0;
+  int32_t monthStart = 0;
+  int32_t yearStart = 0;
+  int32_t lastDay = 0;
+  StreakCounter streaks;
+};
 
 enum class Range : uint8_t { Day, Week, Month, Year };
 int32_t bucketOf(Range range, int32_t day);

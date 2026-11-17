@@ -88,7 +88,7 @@ class ReadingStatsActivity final : public UiTabListActivity {
   bool clockKnown = false;
   int32_t todayDay = 0;
   int finishedThisYear = 0;
-  stats::Streaks streaks;
+  stats::Overview overview;
   char rowValues[ROW_COUNT][32] = {};
   freeink::ui::ListItem rows[ROW_COUNT]{};
   int pageBack[TAB_COUNT] = {};  // windows back from the current one, per chart tab

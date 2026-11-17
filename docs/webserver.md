@@ -13,6 +13,7 @@ The web server is available while the device is in **File Transfer** or
 - Edit many device settings from a browser
 - Manage saved Wi-Fi networks and OPDS servers
 - Upload and delete SD-card font families
+- Show the reading statistics and export them as CSV (this fork)
 - Accept WebDAV clients and Calibre wireless uploads
 
 The server does not require authentication. Use it only on trusted private
@@ -79,7 +80,7 @@ OPDS server.
 
 ## Web Interface
 
-The browser UI has five primary pages.
+The browser UI has six primary pages.
 
 ### Home
 
@@ -134,6 +135,12 @@ Copy them into `/fonts/` or `/.fonts/` on the SD card. The Fonts page and
 [SD card font guide](./sd-card-fonts.md) for the direct font folder layout.
 To remove a loose direct font, delete its file from the SD card. The Fonts page
 can delete a family stored in a subfolder.
+
+### Reading Stats
+
+The Reading Stats page (this fork) shows the reader's [reading statistics](./reading-stats.md)
+with charts, the books list and each book's details, and downloads them as CSV files. It works
+without internet access. See [USER_GUIDE.md section 3.9](../USER_GUIDE.md#39-reading-stats-fork).
 
 ### Plugins
 

@@ -123,10 +123,9 @@ void addRecordSession(Records& records, std::vector<RecordsBook>& books, const S
   if (session.durationSec < 86400) {
     const int startMinute = localMinuteOfDay(session.startUtc, session.tzOffsetMin);
     // A session that reads on past LATE_END_HOUR ends at 03:59 for the latest night.
-    const int endAfter = std::min<int>(afterDayStart(startMinute) + static_cast<int>(session.durationSec / 60),
-                                       24 * 60 - 1);
-    if (records.latestNight.book == NO_BOOK ||
-        endAfter > afterDayStart(static_cast<int>(records.latestNight.value))) {
+    const int endAfter =
+        std::min<int>(afterDayStart(startMinute) + static_cast<int>(session.durationSec / 60), 24 * 60 - 1);
+    if (records.latestNight.book == NO_BOOK || endAfter > afterDayStart(static_cast<int>(records.latestNight.value))) {
       setRecord(records.latestNight, static_cast<uint32_t>((endAfter + LATE_END_HOUR * 60) % (24 * 60)), session);
     }
     if (records.earliestMorning.book == NO_BOOK ||
@@ -200,10 +199,10 @@ void finishYearReview(YearReview& review, const std::vector<YearBook>& books, co
                       const size_t dayCount, const bool todayKnown, const int32_t today) {
   const int32_t first = daysFromCivil(review.year, 1, 1);
   const int32_t last = daysFromCivil(review.year + 1, 1, 1) - 1;
-  const DayRecord* begin = std::lower_bound(days, days + dayCount, first,
-                                            [](const DayRecord& d, const int32_t day) { return d.day < day; });
-  const DayRecord* end = std::upper_bound(days, days + dayCount, last,
-                                          [](const int32_t day, const DayRecord& d) { return day < d.day; });
+  const DayRecord* begin =
+      std::lower_bound(days, days + dayCount, first, [](const DayRecord& d, const int32_t day) { return d.day < day; });
+  const DayRecord* end =
+      std::upper_bound(days, days + dayCount, last, [](const int32_t day, const DayRecord& d) { return day < d.day; });
   review.longestStreak = computeStreaks(begin, static_cast<size_t>(end - begin), 0).longest;
 
   std::fill(review.styles, review.styles + STYLE_COUNT, 0);
@@ -504,6 +503,14 @@ void ChapterReplay::finish() {
   SessionRecord closed{};
   const bool emitted = replay.finish(closed);
   closeSession(emitted ? &closed : nullptr, openMs, false);
+}
+
+int lastStopChapter(const ChapterStats* chapters, const size_t count, const HookTotals& totals) {
+  int lastStop = -1;
+  for (size_t i = 0; totals.hasLastEnd && i < count && chapters[i].spine <= totals.lastEndSpine; ++i) {
+    lastStop = static_cast<int>(i);
+  }
+  return lastStop;
 }
 
 HookHighlights pickHighlights(const ChapterStats* chapters, const size_t count) {

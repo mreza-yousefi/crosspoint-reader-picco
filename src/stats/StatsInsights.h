@@ -259,5 +259,7 @@ struct HookHighlights {
   int mostLookups = -1;
 };
 HookHighlights pickHighlights(const ChapterStats* chapters, size_t count);
+// The chapter holding the spine item the last counted session ended in; -1 for none.
+int lastStopChapter(const ChapterStats* chapters, size_t count, const HookTotals& totals);
 
 }  // namespace stats

@@ -31,14 +31,6 @@ constexpr uint32_t GRID_STEPS[] = {300,      600,       900,       1800,      36
                                    5 * 3600, 10 * 3600, 20 * 3600, 50 * 3600, 100 * 3600, 200 * 3600, 500 * 3600};
 constexpr uint32_t MAX_GRIDLINES = 4;
 constexpr int ARROW_WIDTH = 48;
-
-uint32_t sumDays(const std::vector<stats::DayRecord>& days, const int32_t from, const int32_t to) {
-  uint32_t total = 0;
-  for (const auto& d : days) {
-    if (d.day >= from && d.day <= to) total += d.activeSec;
-  }
-  return total;
-}
 }  // namespace
 
 ReadingStatsActivity::ReadingStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -77,11 +69,13 @@ void ReadingStatsActivity::onEnter() {
 
 void ReadingStatsActivity::loadData() {
   stats::loadDayTotals(data);
-  todayDay = stats::today(clockKnown);
+  const int32_t clockDay = stats::today(clockKnown);
+  stats::OverviewAccumulator acc(clockDay, clockKnown);
+  for (const stats::DayRecord& day : data.days) acc.add(day);
+  overview = acc.result();
   // Without a trusted clock the charts end at the last day with reading.
-  if (!clockKnown && !data.days.empty()) todayDay = data.days.back().day;
+  todayDay = overview.anchor;
   finishedThisYear = clockKnown ? stats::countFinishedInYear(stats::yearOf(todayDay)) : 0;
-  streaks = stats::computeStreaks(data.days.data(), data.days.size(), todayDay);
   computeOverview();
   if (chartTab()) computeBars();
 }
@@ -98,14 +92,11 @@ void ReadingStatsActivity::computeOverview() {
     }
   };
   if (clockKnown) {
-    setDuration(ROW_TODAY, sumDays(data.days, todayDay, todayDay));
-    setDuration(ROW_WEEK, sumDays(data.days, stats::weekStartDay(stats::weekIndex(todayDay)), todayDay));
-    int year;
-    unsigned month, dayOfMonth;
-    stats::civilFromDays(todayDay, year, month, dayOfMonth);
-    setDuration(ROW_MONTH, sumDays(data.days, stats::daysFromCivil(year, month, 1), todayDay));
-    setDuration(ROW_YEAR, sumDays(data.days, stats::daysFromCivil(year, 1, 1), todayDay));
-    setDays(ROW_STREAK, streaks.current);
+    setDuration(ROW_TODAY, overview.todaySec);
+    setDuration(ROW_WEEK, overview.weekSec);
+    setDuration(ROW_MONTH, overview.monthSec);
+    setDuration(ROW_YEAR, overview.yearSec);
+    setDays(ROW_STREAK, overview.streaks.current);
     snprintf(rowValues[ROW_FINISHED], sizeof(rowValues[ROW_FINISHED]), "%d", finishedThisYear);
     rows[ROW_TODAY].subtitle = nullptr;
   } else {
@@ -114,8 +105,8 @@ void ReadingStatsActivity::computeOverview() {
     }
     rows[ROW_TODAY].subtitle = tr(STR_STATS_CLOCK_UNKNOWN);
   }
-  setDuration(ROW_TOTAL, sumDays(data.days, INT32_MIN, INT32_MAX) + data.unknownTimeSec);
-  setDays(ROW_LONGEST, streaks.longest);
+  setDuration(ROW_TOTAL, overview.daysSec + data.unknownTimeSec);
+  setDays(ROW_LONGEST, overview.streaks.longest);
   for (int i = 0; i <= ROW_FINISHED; ++i) rows[i].value = rowValues[i];
 }
 

@@ -37,6 +37,7 @@
 #include <cstring>
 #include <string_view>
 
+#include "ChunkedReply.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
@@ -44,6 +45,7 @@
 #include "ProtectedPaths.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
+#include "StatsWebApi.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "WifiPowerSaveGuard.h"
@@ -53,6 +55,7 @@
 #include "html/PluginsPageHtml.generated.h"
 #include "html/RunnerPageHtml.generated.h"
 #include "html/SettingsPageHtml.generated.h"
+#include "html/StatsPageHtml.generated.h"
 #include "html/assets/crosspoint_iconSvg.generated.h"
 #include "html/assets/iconsSvg.generated.h"
 #include "html/assets/webCss.generated.h"
@@ -195,42 +198,6 @@ bool isProtectedItemName(const String& name) {
   return false;
 }
 
-// Collects a streamed reply into ~1 KB chunks. Each sendContent() is three
-// socket writes; hundreds of tiny writes fill lwIP's send queue (errno 11) and
-// stall the single-threaded server for seconds while other requests wait.
-// A Print, so serializeJson() writes straight into the chunk buffer.
-class ChunkedReply final : public Print {
- public:
-  explicit ChunkedReply(WebServer& server) : server_(server) {}
-  using Print::write;
-  size_t write(uint8_t c) override { return write(&c, 1); }
-  size_t write(const uint8_t* data, size_t len) override {
-    if (used_ + len > sizeof(buffer_)) flush();
-    if (len >= sizeof(buffer_)) {
-      server_.sendContent(reinterpret_cast<const char*>(data), len);
-      return len;
-    }
-    memcpy(buffer_ + used_, data, len);
-    used_ += len;
-    return len;
-  }
-  void flush() override {
-    if (used_ == 0) return;
-    server_.sendContent(buffer_, used_);
-    used_ = 0;
-  }
-  // Ends the chunked stream after the buffered data.
-  void end() {
-    flush();
-    server_.sendContent("");
-  }
-
- private:
-  WebServer& server_;
-  char buffer_[1024];
-  size_t used_ = 0;
-};
-
 // True if key is one of the comma-separated names in list.
 bool listContainsKey(const String& list, const char* key) {
   const size_t keyLen = strlen(key);
@@ -356,6 +323,23 @@ class CrossPointWebServer::RouteHandler final : public RequestHandler {
         {"/api/fetch", HTTP_POST, [](S& s) { s.handleFetch(); }, nullptr},
         {"/api/book-key", HTTP_POST, [](S& s) { s.handleBookKey(); }, nullptr},
         {"/api/plugin-fs", HTTP_POST, [](S& s) { s.handlePluginFs(); }, [](S& s) { s.handlePluginFsUpload(); }},
+
+        {"/stats", HTTP_GET,
+         [](S& s) {
+           sendStaticContent(s.server.get(), StatsPageHtml, sizeof(StatsPageHtml), StatsPageHtmlETag, "text/html");
+         },
+         nullptr},
+        {"/api/stats/summary", HTTP_GET, [](S& s) { statsweb::handleSummary(*s.server); }, nullptr},
+        {"/api/stats/grid", HTTP_GET, [](S& s) { statsweb::handleGrid(*s.server); }, nullptr},
+        {"/api/stats/books", HTTP_GET, [](S& s) { statsweb::handleBooks(*s.server); }, nullptr},
+        {"/api/stats/book", HTTP_GET, [](S& s) { statsweb::handleBook(*s.server); }, nullptr},
+        {"/api/stats/sessions", HTTP_GET, [](S& s) { statsweb::handleSessions(*s.server); }, nullptr},
+        {"/api/stats/hooks", HTTP_GET, [](S& s) { statsweb::handleHooks(*s.server); }, nullptr},
+        {"/api/stats/records", HTTP_GET, [](S& s) { statsweb::handleRecords(*s.server); }, nullptr},
+        {"/api/stats/year", HTTP_GET, [](S& s) { statsweb::handleYear(*s.server); }, nullptr},
+        {"/api/stats/speed", HTTP_GET, [](S& s) { statsweb::handleSpeed(*s.server); }, nullptr},
+        {"/api/stats/sessions.csv", HTTP_GET, [](S& s) { statsweb::handleSessionsCsv(*s.server); }, nullptr},
+        {"/api/stats/books.csv", HTTP_GET, [](S& s) { statsweb::handleBooksCsv(*s.server); }, nullptr},
 
         {"/api/wifi", HTTP_GET, [](S& s) { s.handleGetWifiNetworks(); }, nullptr},
         {"/api/wifi", HTTP_POST, [](S& s) { s.handlePostWifiNetwork(); }, nullptr},

@@ -230,6 +230,12 @@ bool crossesFinish(const uint16_t startPercentBp, const uint16_t percentBp) {
   return startPercentBp < FINISHED_BP && percentBp >= FINISHED_BP;
 }
 
+uint16_t paperPagesForward(const SessionRecord& session) {
+  return session.startPaperPage > 0 && session.endPaperPage > session.startPaperPage
+             ? static_cast<uint16_t>(session.endPaperPage - session.startPaperPage)
+             : 0;
+}
+
 bool LogScanner::next(uint8_t* buf, size_t& size) {
   if (read(ctx, buf, 2) != 2) return false;
   const size_t recordSize = buf[1];
@@ -488,9 +494,7 @@ ApplyResult applySession(BookTotals& totals, const bool bookExcluded, const Sess
     result.day.activeSec = session.activeSec;
     result.day.sessions = 1;
     result.day.sittings = result.newSitting ? 1 : 0;
-    result.day.pagesRead = session.startPaperPage > 0 && session.endPaperPage > session.startPaperPage
-                               ? static_cast<uint16_t>(session.endPaperPage - session.startPaperPage)
-                               : 0;
+    result.day.pagesRead = paperPagesForward(session);
   }
   return result;
 }
@@ -517,20 +521,54 @@ void addDay(std::vector<DayRecord>& days, const DayRecord& add) {
   }
 }
 
-Streaks computeStreaks(const DayRecord* days, const size_t count, const int32_t today) {
+void StreakCounter::add(const DayRecord& day) {
+  if (day.activeSec == 0) return;
+  run = hasPrev && day.day == prev + 1 ? run + 1 : 1;
+  prev = day.day;
+  hasPrev = true;
+  longest = std::max(longest, run);
+}
+
+Streaks StreakCounter::result(const int32_t today) const {
   Streaks streaks;
-  int run = 0;
-  int32_t prev = 0;
-  bool hasPrev = false;
-  for (size_t i = 0; i < count; ++i) {
-    if (days[i].activeSec == 0) continue;
-    run = hasPrev && days[i].day == prev + 1 ? run + 1 : 1;
-    prev = days[i].day;
-    hasPrev = true;
-    streaks.longest = std::max(streaks.longest, run);
-  }
+  streaks.longest = longest;
   if (hasPrev && (prev == today || prev == today - 1)) streaks.current = run;
   return streaks;
+}
+
+Streaks computeStreaks(const DayRecord* days, const size_t count, const int32_t today) {
+  StreakCounter counter;
+  for (size_t i = 0; i < count; ++i) counter.add(days[i]);
+  return counter.result(today);
+}
+
+OverviewAccumulator::OverviewAccumulator(const int32_t today, const bool clockKnown) : known(clockKnown) {
+  sums.anchor = today;
+  if (!known) return;
+  int year;
+  unsigned month, dayOfMonth;
+  civilFromDays(today, year, month, dayOfMonth);
+  weekStart = weekStartDay(weekIndex(today));
+  monthStart = daysFromCivil(year, month, 1);
+  yearStart = daysFromCivil(year, 1, 1);
+}
+
+void OverviewAccumulator::add(const DayRecord& day) {
+  sums.daysSec += day.activeSec;
+  lastDay = day.day;
+  streaks.add(day);
+  if (!known || day.day > sums.anchor) return;
+  if (day.day == sums.anchor) sums.todaySec += day.activeSec;
+  if (day.day >= weekStart) sums.weekSec += day.activeSec;
+  if (day.day >= monthStart) sums.monthSec += day.activeSec;
+  if (day.day >= yearStart) sums.yearSec += day.activeSec;
+}
+
+Overview OverviewAccumulator::result() const {
+  Overview out = sums;
+  if (!known) out.anchor = lastDay;
+  out.streaks = streaks.result(out.anchor);
+  return out;
 }
 
 int32_t bucketOf(const Range range, const int32_t day) {

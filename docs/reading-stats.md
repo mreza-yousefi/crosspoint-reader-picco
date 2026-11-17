@@ -5,13 +5,14 @@ reader; XTC books are not recorded) and shows it on the **Reading Stats** screen
 contract for the data: file formats, the rules that turn page turns into "active reading time",
 and what each screen reads. Stage 1 has the recorder, the Overview and the time charts. Stage 2
 adds the book lists and book pages, reading styles, the weekday x hour grid, comparing two books,
-the week and month drill-down, dictionary time and the automatic-sleep idle trim. Stage 3 (this
-version) adds records, the year in review, speed trends, lookups per hour, late nights and "what
-hooked me" per chapter; it adds no file and reads the files below. A later stage adds a web page
-and CSV export.
+the week and month drill-down, dictionary time and the automatic-sleep idle trim. Stage 3 adds
+records, the year in review, speed trends, lookups per hour, late nights and "what hooked me" per
+chapter. Stage 4 (this version) adds a web page and CSV export on the device's web server. Stages
+3 and 4 add no file and read the files below.
 
-Code: `src/stats/` (recorder, rules, file formats, queries; Stage 3 rules in `StatsInsights`),
-`src/activities/stats/` (screens).
+Code: `src/stats/` (recorder, rules, file formats, queries; Stage 3 rules in `StatsInsights`, the
+JSON and CSV text in `StatsExport`), `src/activities/stats/` (screens), `src/network/StatsWebApi.cpp`
+and `src/network/html/StatsPage.html` (web page).
 Host tests: `test/reading_stats/`.
 
 **Not the upstream `reader.session` plugin event.** Upstream CrossPoint emits a `reader.session`
@@ -24,6 +25,13 @@ on the SD card for the screens here. Both run side by side.
 Everything stays on the SD card under `/.crosspoint/stats/`. Nothing is sent anywhere, except
 that [Home Backup](home-backup.md) copies the folder to your own server like the rest of the
 card. **Clear Reading Cache** does not delete it. To delete all statistics, delete the folder.
+
+The web page and the CSV files (below) are served only by the reader's own web server, which runs
+only while File Transfer or Calibre Wireless is on, on the local network (or the reader's hotspot).
+Like the files on the card, anyone on that network can read them then: the web server has no
+login. It also allows cross-origin requests (CORS), so a web page open in a browser on that network
+could read `/api/stats` too. The page loads nothing from the internet and the reader makes no call
+for it.
 
 ## Terms
 
@@ -480,7 +488,90 @@ All screens work with the buttons alone; touch is optional.
 | Year in review (a tab per year) | `sessions.bin` + running session (24 bytes per book while loading), `days.bin`, `booktotals.bin` (finished), titles from `books.bin` |
 | Reading speed trends: by month, time of day, font size | `sessions.bin` + running session (`charsRead`, `learnedMs`, font size) |
 | What hooked me: Highlights and Chapters (from the book page) | the book's raw log (`S`, `T`, `E`, `X` records; the recorder's buffer is written first), its record in `books.bin` (speed model, path), the book's `book.bin` spine/TOC cache for chapter entries and titles |
-| Later: web page, CSV export | all of the above |
+| Web page `/stats` and CSV export (below) | as the screens above; the CSV files stream `sessions.bin`, `books.bin` and `booktotals.bin` |
 
 A streak counts days with active reading; it is current when it ends today, or yesterday while
 today has no reading yet.
+
+## Web page and CSV export
+
+While File Transfer (or Calibre Wireless) is on, `GET /stats` serves a static page from flash
+(`src/network/html/StatsPage.html`, gzip, built like the other web pages). It fetches JSON from the
+endpoints below and draws the charts with SVG in the browser; it uses no external resource. The
+endpoints and their fields are in [webserver-endpoints.md](webserver-endpoints.md#reading-stats-api).
+
+| Endpoint | Data | Reads |
+|---|---|---|
+| `/api/stats/summary` | Overview values (`OverviewAccumulator`, as the Overview screen), the day list (for the Days/Weeks/Months/Years charts), the years with reading (`loadReadingYears`) | `days.bin` streamed twice (`forEachDay`), `booktotals.bin` (finished this year) |
+| `/api/stats/grid` | weekday x hour grid | as When I Read |
+| `/api/stats/books` | every book with counted reading and every hidden book (`hidden` marks them) | `books.bin`, `booktotals.bin`, one pass over `sessions.bin` for the style (33 bytes per book while loading) |
+| `/api/stats/book` | one book's summary and progress points | as the book page, without the session rows |
+| `/api/stats/sessions` | every session, or one book's | `sessions.bin` streamed |
+| `/api/stats/hooks` | one book's chapters and highlights | as What Hooked Me |
+| `/api/stats/records`, `/year`, `/speed` | as the screens | as the screens |
+| `/api/stats/sessions.csv`, `/books.csv` | the CSV files below | `sessions.bin` or the books, with titles from `books.bin` |
+
+Each request first runs `ReadingStats::prepareSummaries()`, as the screens do; the first request
+after Ignore Short Opens was changed in Settings rebuilds the summaries (a few seconds with much
+reading). The day, book and session lists and the CSV files are written row by row into a 1 KB chunk
+buffer (`ChunkedReply`) as they are read, so they cost the same memory for any number of rows; the
+books keep the 33 bytes per book of the Books list pass. The records, year, speed, grid, book and
+chapter replies hold what the matching screen holds, on the heap. `forEachSession` resets the task
+watchdog every 256 records; every 32 rows a list resets it too and checks the browser is still
+connected; when it has gone, the day and session iterators stop early (a stop flag). The calendar
+charts follow the device: hidden books and sessions without a known wall time are not in them;
+Total includes the undated time. The Books list and the CSV files include hidden books.
+
+`book` in the endpoints and the CSV files is the book's record number in `books.bin`. It stays the
+same while the stats folder is kept; deleting the folder starts the numbers again.
+
+Both CSV files are UTF-8 with a byte order mark (BOM), so spreadsheets read accented titles
+correctly (in pandas: `encoding="utf-8-sig"`). A title or author that starts with `=`, `+`, `-`,
+`@`, TAB or CR gets a leading `'`, so a spreadsheet shows it as text instead of running it as a
+formula.
+
+### `reading-sessions.csv`
+
+One row per ended session in `sessions.bin` (file order; the running session is not included),
+comma-separated, CRLF line ends, quoted per RFC 4180 when a field holds a comma, a quote or a line
+break. Times are local at the session's own offset (`tzOffsetMin` at its start); they are empty
+when the wall time is unknown.
+
+| Column | Meaning |
+|---|---|
+| `session` | session number (`sessionSeq`) |
+| `book` | index in `books.bin` |
+| `title`, `author` | from `books.bin` |
+| `hidden` | 1 when the book is hidden from the stats |
+| `start_local`, `end_local` | `YYYY-MM-DD HH:MM:SS`; the end is the start plus the wall length |
+| `tz_min` | offset from UTC at the start, in minutes east (60 = UTC+1); empty without a wall time |
+| `duration_sec`, `active_sec`, `dict_sec` | wall length, active time, dictionary time (part of the active time) |
+| `pages` | paper pages moved forward (as `days.bin` counts them; 0 when unknown) |
+| `turns_forward`, `turns_back`, `jumps`, `lookups`, `clippings`, `bookmarks` | counts |
+| `start_percent`, `end_percent` | position, one decimal; 100.0 = end-of-book screen |
+| `chars_read`, `learned_ms` | exact text read and its active time (reading speed) |
+| `font_size` | at the start |
+| `end_reason` | `closed`, `sleep`, `auto_sleep`, `reset` |
+| `flags` | the session flags (`SESSION_*`, above) as a number |
+| `counted` | 1 when the session counts in the totals (`countsInTotals`; 0 for a short open with Ignore Short Opens on) |
+| `finished` | 1 when the session finished the book (flag 16) |
+
+### `reading-books.csv`
+
+One row per book with counted reading and per hidden book, in registry order. The totals are the
+book's `booktotals.bin` record (the short-open rule applies, the hidden flag does not); dates are
+local days at the time zone set on the reader.
+
+| Column | Meaning |
+|---|---|
+| `book` | index in `books.bin` |
+| `title`, `author` | from `books.bin` |
+| `hidden` | 1 when hidden from the stats |
+| `active_sec`, `sessions`, `sittings` | totals |
+| `first_read`, `last_read` | `YYYY-MM-DD` of the first and last dated session start |
+| `finished` | 1 when a session finished the book |
+| `finished_date` | its day; empty when not finished or the time is unknown |
+| `position_percent`, `furthest_percent` | where the last session ended, the furthest position |
+| `chars_read`, `learned_ms` | exact text read and its active time |
+| `pages_per_hour` | reading speed (0 below 5 minutes measured) |
+| `style` | reading style: `stalled`, `binge`, `snacking`, `steady`, `intermittent`, or empty |

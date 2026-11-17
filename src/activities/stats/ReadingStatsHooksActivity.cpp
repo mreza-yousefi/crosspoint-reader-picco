@@ -101,12 +101,7 @@ void ReadingStatsHooksActivity::formatHighlights() {
   if (h.mostEnds >= 0) count(c[h.mostEnds].ends, text, sizeof(text));
   setHighlight(ROW_MOST_STOPS, h.mostEnds, text);
 
-  // The chapter row holding the spine item the last session ended in.
-  int lastStop = -1;
-  for (size_t i = 0; hooks.totals.hasLastEnd && i < hooks.count && c[i].spine <= hooks.totals.lastEndSpine; ++i) {
-    lastStop = static_cast<int>(i);
-  }
-  setHighlight(ROW_LAST_STOP, lastStop, "");
+  setHighlight(ROW_LAST_STOP, stats::lastStopChapter(c, hooks.count, hooks.totals), "");
 
   if (h.mostReread >= 0) {
     const uint32_t pages = (c[h.mostReread].rereadChars + stats::PAPER_PAGE_CHARS / 2) / stats::PAPER_PAGE_CHARS;

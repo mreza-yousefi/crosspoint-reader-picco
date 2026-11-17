@@ -1,10 +1,13 @@
 #pragma once
 
+#include <HalStorage.h>
+
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "StatsExport.h"
 #include "StatsFormat.h"
 #include "StatsInsights.h"
 #include "StatsLogic.h"
@@ -24,10 +27,15 @@ struct DayTotals {
 // days.bin plus the running session, when it counts.
 bool loadDayTotals(DayTotals& out);
 
+// Streams the calendar days in day order (days.bin with the running session merged in) without
+// keeping them. unknownTimeSec: counted reading without wall time. Stops early once *stop is set.
+using DayFn = void (*)(void* ctx, const DayRecord& day);
+void forEachDay(DayFn fn, void* ctx, uint32_t& unknownTimeSec, const bool* stop = nullptr);
+
 // Calls fn for every session in sessions.bin in file order, then the running session
-// (live = true); hidden: the book is hidden from the calendar.
+// (live = true); hidden: the book is hidden from the calendar. Stops early once *stop is set.
 using AnySessionFn = void (*)(void* ctx, const SessionRecord& session, bool live, bool hidden);
-void forEachSession(AnySessionFn fn, void* ctx);
+void forEachSession(AnySessionFn fn, void* ctx, const bool* stop = nullptr);
 
 // Calls fn for every session that counts in the calendar (countsInCalendar), from
 // sessions.bin in file order, then the running session (live = true).
@@ -56,6 +64,32 @@ struct BookListEntry {
 // read first; the running session included.
 bool loadBookList(bool hiddenBooks, std::vector<BookListEntry>& out);
 
+// Title and author by book index from books.bin, kept open; the last book read is cached.
+class BookNames {
+ public:
+  // False without a registry.
+  bool open();
+  // Empty strings for an unknown index.
+  void load(uint16_t index);
+  const char* title() const { return text.title; }
+  const char* author() const { return text.author; }
+
+ private:
+  struct Text {
+    char title[sizeof(BookRecord::title)];
+    char author[sizeof(BookRecord::author)];
+  };
+  HalFile file;
+  int count = 0;
+  int loaded = -1;
+  Text text = {};
+};
+
+// Books with counted reading and hidden books, in registry order, with their booktotals.bin
+// record and the Books list's style. fn returns false to stop.
+using BookRowFn = bool (*)(void* ctx, const BookExport& book);
+bool forEachBook(BookRowFn fn, void* ctx);
+
 struct BookSessionRow {
   uint32_t startUtc;  // 0 = wall time unknown
   uint32_t durationSec;
@@ -80,9 +114,10 @@ struct BookDetail {
   uint32_t lateSessions = 0;             // counted sessions with late-night reading
   uint32_t lateSec = 0;
 };
-// One book's counted sessions (sessions.bin, the running one). full: also the session rows and
-// the progress points; without it only the totals and style.
-bool loadBookDetail(uint16_t index, BookDetail& out, bool full = true);
+// What loadBookDetail fills besides the totals and style.
+enum class BookDetailLoad : uint8_t { Totals, Progress, Full };  // Full: progress and session rows
+// One book's counted sessions (sessions.bin, the running one). False for an unknown book.
+bool loadBookDetail(uint16_t index, BookDetail& out, BookDetailLoad load = BookDetailLoad::Full);
 
 // Calendar sessions that started on fromDay or later, spread over the weekday x hour grid
 // (GRID_CELLS values).

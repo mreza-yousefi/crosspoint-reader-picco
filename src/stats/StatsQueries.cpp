@@ -8,6 +8,7 @@
 #include <TrustedTime.h>
 
 #include <algorithm>
+#include <cstddef>
 
 #include "CrossPointSettings.h"
 #include "ReadingStats.h"
@@ -37,6 +38,29 @@ constexpr uint32_t WATCHDOG_RECORDS = 256;
 // Longest TOC title kept per chapter, cut at a UTF-8 character boundary.
 constexpr size_t MAX_CHAPTER_TITLE = 48;
 
+// The running session's share of the day totals: true with its day, else (when it counts without
+// a wall time) its time added to undatedSec.
+bool liveDayShare(DayRecord& day, uint32_t& undatedSec) {
+  SessionRecord live{};
+  bool hidden = false;
+  if (!READING_STATS.liveSession(live, hidden) || hidden || !countsInTotals(live, ignoreShort())) return false;
+  if (!countsInCalendar(live, ignoreShort(), hidden)) {
+    undatedSec += live.activeSec;
+    return false;
+  }
+  day = DayRecord{};
+  day.day = localDay(live.startUtc, live.tzOffsetMin);
+  day.activeSec = live.activeSec;
+  day.sessions = 1;
+  return true;
+}
+
+bool openDays(HalFile& file, DaysHeader& header) {
+  return Storage.exists(DAYS_PATH) && Storage.openFileForRead("STATS", DAYS_PATH, file) &&
+         readExact(file, &header, sizeof(header)) &&
+         headerMatches(header.file, MAGIC_DAYS, DAYS_VERSION, sizeof(DaysHeader), sizeof(DayRecord));
+}
+
 void appendTitle(std::string& pool, const std::string& title) {
   size_t len = std::min(title.size(), MAX_CHAPTER_TITLE);
   while (len > 0 && len < title.size() && (static_cast<uint8_t>(title[len]) & 0xC0) == 0x80) --len;
@@ -56,38 +80,44 @@ int32_t today(bool& known) {
 
 bool loadDayTotals(DayTotals& out) {
   out.days.clear();
-  out.unknownTimeSec = 0;
   {
     HalFile file;
     DaysHeader header{};
-    if (Storage.exists(DAYS_PATH) && Storage.openFileForRead("STATS", DAYS_PATH, file) &&
-        readExact(file, &header, sizeof(header)) &&
-        headerMatches(header.file, MAGIC_DAYS, DAYS_VERSION, sizeof(DaysHeader), sizeof(DayRecord))) {
-      out.unknownTimeSec = header.unknownTimeActiveSec;
-      // 16 bytes per reading day; the screen keeps them while it is open.
-      out.days.reserve((file.size() - sizeof(DaysHeader)) / sizeof(DayRecord) + 1);
-      DayRecord day{};
-      while (readExact(file, &day, sizeof(day))) out.days.push_back(day);
-    }
+    // 16 bytes per reading day (and one for the running session); the screen keeps them while it is open.
+    if (openDays(file, header)) out.days.reserve((file.size() - sizeof(DaysHeader)) / sizeof(DayRecord) + 1);
   }
-
-  SessionRecord live{};
-  bool hidden = false;
-  if (READING_STATS.liveSession(live, hidden) && countsInTotals(live, ignoreShort()) && !hidden) {
-    if (countsInCalendar(live, ignoreShort(), hidden)) {
-      DayRecord add{};
-      add.day = localDay(live.startUtc, live.tzOffsetMin);
-      add.activeSec = live.activeSec;
-      add.sessions = 1;
-      addDay(out.days, add);
-    } else {
-      out.unknownTimeSec += live.activeSec;
-    }
-  }
+  forEachDay([](void* days, const DayRecord& day) { static_cast<std::vector<DayRecord>*>(days)->push_back(day); },
+             &out.days, out.unknownTimeSec);
   return true;
 }
 
-void forEachSession(const AnySessionFn fn, void* ctx) {
+void forEachDay(const DayFn fn, void* ctx, uint32_t& unknownTimeSec, const bool* stop) {
+  unknownTimeSec = 0;
+  DayRecord live{};
+  bool livePending = liveDayShare(live, unknownTimeSec);
+  HalFile file;
+  DaysHeader header{};
+  if (openDays(file, header)) {
+    unknownTimeSec += header.unknownTimeActiveSec;
+    DayRecord day{};
+    for (uint32_t n = 1; readExact(file, &day, sizeof(day)); ++n) {
+      if (livePending && live.day <= day.day) {
+        if (live.day == day.day) {
+          mergeDay(day, live);
+        } else {
+          fn(ctx, live);
+        }
+        livePending = false;
+      }
+      fn(ctx, day);
+      if (stop && *stop) return;
+      if (n % WATCHDOG_RECORDS == 0) resetTaskWatchdogIfSubscribed();
+    }
+  }
+  if (livePending) fn(ctx, live);
+}
+
+void forEachSession(const AnySessionFn fn, void* ctx, const bool* stop) {
   std::vector<uint8_t> hidden;
   READING_STATS.loadHiddenFlags(hidden);
   {
@@ -97,9 +127,11 @@ void forEachSession(const AnySessionFn fn, void* ctx) {
         readExact(file, &header, sizeof(header)) &&
         headerMatches(header, MAGIC_SESSIONS, SESSIONS_VERSION, sizeof(FileHeader), sizeof(SessionRecord))) {
       SessionRecord record{};
-      while (readExact(file, &record, sizeof(record))) {
+      for (uint32_t n = 1; readExact(file, &record, sizeof(record)); ++n) {
+        if (n % WATCHDOG_RECORDS == 0) resetTaskWatchdogIfSubscribed();
         if (record.bookIndex >= hidden.size()) continue;
         fn(ctx, record, false, hidden[record.bookIndex] != 0);
+        if (stop && *stop) return;
       }
     }
   }
@@ -157,13 +189,12 @@ int countFinishedInYear(const int year) {
   return finished;
 }
 
-bool loadBookList(const bool hiddenBooks, std::vector<BookListEntry>& out) {
-  out.clear();
-  std::vector<uint8_t> hidden;
-  READING_STATS.loadHiddenFlags(hidden);
+namespace {
+// Every book's counted time, last dated start and style (the Books list pass); index = book.
+void collectBooks(const std::vector<uint8_t>& hidden, std::vector<BookListEntry>& books) {
   const size_t count = hidden.size();
   // While loading: 16 bytes per book here, 16 in the style counters, 1 for the finished flag.
-  std::vector<BookListEntry> books(count);
+  books.assign(count, BookListEntry{});
   std::vector<StyleAcc> styles(count);
   std::vector<uint8_t> finished(count, 0);
   for (size_t i = 0; i < count; ++i) books[i].index = static_cast<uint16_t>(i);
@@ -191,11 +222,21 @@ bool loadBookList(const bool hiddenBooks, std::vector<BookListEntry>& out) {
   bool known = false;
   const int32_t todayDay = today(known);
   for (size_t i = 0; i < count; ++i) {
-    BookListEntry& book = books[i];
-    if (hiddenBooks ? hidden[i] == 0 : (hidden[i] != 0 || !book.counted)) continue;
-    book.style = classifyStyle(styles[i], finished[i] != 0, known, todayDay);
-    book.lastDay = styles[i].lastDay;
-    out.push_back(book);
+    books[i].style = classifyStyle(styles[i], finished[i] != 0, known, todayDay);
+    books[i].lastDay = styles[i].lastDay;
+  }
+}
+}  // namespace
+
+bool loadBookList(const bool hiddenBooks, std::vector<BookListEntry>& out) {
+  out.clear();
+  std::vector<uint8_t> hidden;
+  READING_STATS.loadHiddenFlags(hidden);
+  std::vector<BookListEntry> books;
+  collectBooks(hidden, books);
+  for (size_t i = 0; i < books.size(); ++i) {
+    if (hiddenBooks ? hidden[i] == 0 : (hidden[i] != 0 || !books[i].counted)) continue;
+    out.push_back(books[i]);
   }
   std::sort(out.begin(), out.end(), [](const BookListEntry& a, const BookListEntry& b) {
     return a.lastUtc != b.lastUtc ? a.lastUtc > b.lastUtc : a.index > b.index;
@@ -203,7 +244,70 @@ bool loadBookList(const bool hiddenBooks, std::vector<BookListEntry>& out) {
   return true;
 }
 
-bool loadBookDetail(const uint16_t index, BookDetail& out, const bool full) {
+bool BookNames::open() {
+  if (!Storage.exists(REGISTRY_PATH) || !Storage.openFileForRead("STATS", REGISTRY_PATH, file)) return false;
+  const size_t size = file.size();
+  count = size < sizeof(RegistryHeader) ? 0 : static_cast<int>((size - sizeof(RegistryHeader)) / sizeof(BookRecord));
+  return true;
+}
+
+void BookNames::load(const uint16_t index) {
+  if (index == loaded) return;
+  loaded = index;
+  // Title and author are adjacent in the record: one read.
+  static_assert(offsetof(BookRecord, author) == offsetof(BookRecord, title) + sizeof(BookRecord::title));
+  static_assert(sizeof(Text) == sizeof(BookRecord::title) + sizeof(BookRecord::author));
+  if (index >= count || !file.seek(sizeof(RegistryHeader) + index * sizeof(BookRecord) + offsetof(BookRecord, title)) ||
+      !readExact(file, &text, sizeof(text))) {
+    text.title[0] = text.author[0] = '\0';
+    return;
+  }
+  text.title[sizeof(text.title) - 1] = '\0';
+  text.author[sizeof(text.author) - 1] = '\0';
+}
+
+bool forEachBook(const BookRowFn fn, void* ctx) {
+  std::vector<uint8_t> hidden;
+  if (!READING_STATS.loadHiddenFlags(hidden)) return false;
+  std::vector<BookListEntry> books;
+  collectBooks(hidden, books);
+
+  // The open registry and one book's names (about 200 bytes).
+  auto names = makeUniqueNoThrow<BookNames>();
+  if (!names) {
+    LOG_ERR("STATS", "OOM: book names (%u bytes)", static_cast<unsigned>(sizeof(BookNames)));
+    return false;
+  }
+  if (!names->open()) return false;
+  HalFile totalsFile;
+  FileHeader header{};
+  const bool haveTotals = Storage.exists(TOTALS_PATH) && Storage.openFileForRead("STATS", TOTALS_PATH, totalsFile) &&
+                          readExact(totalsFile, &header, sizeof(header)) &&
+                          headerMatches(header, MAGIC_TOTALS, TOTALS_VERSION, sizeof(FileHeader), sizeof(BookTotals));
+  for (size_t i = 0; i < books.size(); ++i) {
+    if (!books[i].counted && hidden[i] == 0) continue;
+    BookTotals totals{};
+    if (!haveTotals || !totalsFile.seek(sizeof(FileHeader) + i * sizeof(BookTotals)) ||
+        !readExact(totalsFile, &totals, sizeof(totals))) {
+      totals = BookTotals{};
+    }
+    names->load(static_cast<uint16_t>(i));
+    const BookExport row{static_cast<uint16_t>(i),
+                         names->title(),
+                         names->author(),
+                         totals,
+                         hidden[i] != 0,
+                         books[i].style,
+                         localTzOffsetMin(totals.firstUtc),
+                         localTzOffsetMin(totals.lastUtc),
+                         localTzOffsetMin(totals.finishedUtc)};
+    if (!fn(ctx, row)) break;
+    resetTaskWatchdogIfSubscribed();
+  }
+  return true;
+}
+
+bool loadBookDetail(const uint16_t index, BookDetail& out, const BookDetailLoad load) {
   out = BookDetail{};
   std::vector<uint8_t> hidden;
   READING_STATS.loadHiddenFlags(hidden);
@@ -214,15 +318,16 @@ bool loadBookDetail(const uint16_t index, BookDetail& out, const bool full) {
     BookDetail* out;
     uint16_t index;
     bool ignoreShort;
-    bool full;
+    bool progress;
+    bool rows;
     size_t next;  // ring position once MAX_BOOK_SESSIONS rows are kept
-  } context{&out, index, ignoreShort(), full, 0};
-  if (full) out.progress.reserve(MAX_PROGRESS_POINTS + 1);
+  } context{&out, index, ignoreShort(), load != BookDetailLoad::Totals, load == BookDetailLoad::Full, 0};
+  if (context.progress) out.progress.reserve(MAX_PROGRESS_POINTS + 1);
   forEachSession(
       [](void* c, const SessionRecord& s, const bool live, bool) {
         auto& x = *static_cast<Context*>(c);
         if (s.bookIndex != x.index ||
-            !addBookSession(x.out->agg, s, x.ignoreShort, x.full ? &x.out->progress : nullptr)) {
+            !addBookSession(x.out->agg, s, x.ignoreShort, x.progress ? &x.out->progress : nullptr)) {
           return;
         }
         const uint32_t late = lateNightSec(s);
@@ -230,7 +335,7 @@ bool loadBookDetail(const uint16_t index, BookDetail& out, const bool full) {
           ++x.out->lateSessions;
           x.out->lateSec += late;
         }
-        if (!x.full) return;
+        if (!x.rows) return;
         const BookSessionRow row{s.startUtc,       s.durationSec,  s.activeSec, s.dictSec, s.tzOffsetMin,
                                  s.startPercentBp, s.endPercentBp, s.lookups,   s.flags,   live};
         auto& rows = x.out->sessions;
@@ -290,16 +395,31 @@ bool loadRecords(Records& out) {
 }
 
 int loadReadingYears(int* out, const int maxYears) {
-  DayTotals days;
-  loadDayTotals(days);
-  int count = 0;
-  for (auto it = days.days.rbegin(); it != days.days.rend() && count < maxYears; ++it) {
-    const int year = static_cast<int>(yearOf(it->day));
-    if (count == 0 || out[count - 1] != year) out[count++] = year;
-  }
+  if (maxYears <= 0) return 0;
+  // Ascending while the days stream past, the newest maxYears kept; reversed at the end.
+  struct Context {
+    int* years;
+    int max;
+    int count;
+  } context{out, maxYears, 0};
+  uint32_t undatedSec = 0;
+  forEachDay(
+      [](void* c, const DayRecord& day) {
+        auto& x = *static_cast<Context*>(c);
+        const int year = static_cast<int>(yearOf(day.day));
+        if (x.count > 0 && x.years[x.count - 1] == year) return;
+        if (x.count == x.max) {
+          std::copy(x.years + 1, x.years + x.max, x.years);
+          --x.count;
+        }
+        x.years[x.count++] = year;
+      },
+      &context, undatedSec);
+  int count = context.count;
+  std::reverse(out, out + count);
   bool known = false;
   const int32_t todayDay = today(known);
-  if (count == 0 && known && maxYears > 0) out[count++] = static_cast<int>(yearOf(todayDay));
+  if (count == 0 && known) out[count++] = static_cast<int>(yearOf(todayDay));
   return count;
 }
 

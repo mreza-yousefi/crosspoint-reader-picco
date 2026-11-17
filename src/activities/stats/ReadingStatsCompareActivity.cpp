@@ -27,7 +27,7 @@ void ReadingStatsCompareActivity::onEnter() {
     }
     // Totals and style only: no session rows are kept.
     stats::BookDetail detail;
-    stats::loadBookDetail(books[b], detail, false);
+    stats::loadBookDetail(books[b], detail, stats::BookDetailLoad::Totals);
     const stats::BookTotals& t = detail.agg.totals;
     statstext::compactDuration(t.totalActiveSec, values[b][ROW_TOTAL], sizeof(values[b][ROW_TOTAL]));
     const uint32_t speed = stats::pagesPerHour(t.charsRead, t.learnedMs);

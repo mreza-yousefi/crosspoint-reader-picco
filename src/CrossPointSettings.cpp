@@ -16,6 +16,7 @@
 #include "ReaderLineSpacing.h"
 #include "SettingsList.h"
 #include "fontIds.h"
+#include "util/BookSettingsMerge.h"
 #include "util/ParagraphIndentMigration.h"
 #include "util/PluginLocations.h"
 
@@ -137,6 +138,9 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   }
 
   bleturner::writeJson(ble, doc);
+
+  // A book is open: its text settings are in the fields above; save the defaults instead.
+  if (bookValuesActive_) booksettings::saveDefaultsOver(doc.as<JsonObject>(), readingDefaults_.as<JsonObjectConst>());
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
@@ -339,8 +343,10 @@ void CrossPointSettings::readingSettingsToJson(JsonDocument& doc) const {
   };
   forEachBaseSetting(visit);
   doc["fontSize"] = fontPointSize;
-  // Written even when empty: the built-in font is a per-book choice too.
-  doc["sdFontFamilyName"] = sdFontFamilyName;
+  // Written even when empty: the built-in font is a per-book choice too. The cast
+  // makes ArduinoJson copy the text; a char array is stored by pointer, so a
+  // snapshot would follow later edits of this buffer.
+  doc["sdFontFamilyName"] = static_cast<const char*>(sdFontFamilyName);
 }
 
 bool CrossPointSettings::readingSettingsFromJson(JsonVariantConst doc) {
@@ -369,6 +375,23 @@ bool CrossPointSettings::readingSettingsFromJson(JsonVariantConst doc) {
     }
   }
   return changed;
+}
+
+// Under storeMutex: toJson() reads readingDefaults_ while saving.
+void CrossPointSettings::beginBookValues() {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (bookValuesActive_) return;
+  readingDefaults_.clear();
+  readingSettingsToJson(readingDefaults_);
+  bookValuesActive_ = true;
+}
+
+void CrossPointSettings::endBookValues() {
+  std::lock_guard<std::mutex> lock(storeMutex);
+  if (!bookValuesActive_) return;
+  readingSettingsFromJson(readingDefaults_.as<JsonVariantConst>());
+  readingDefaults_.clear();
+  bookValuesActive_ = false;
 }
 
 void CrossPointSettings::resetReadingSettings() {

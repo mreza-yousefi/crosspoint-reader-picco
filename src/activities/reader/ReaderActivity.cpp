@@ -86,6 +86,8 @@ void ReaderActivity::onEnter() {
     documentId.clear();
   }
   if (usesBookSettings()) {
+    // Also without a document id: changes in this book then last until it closes.
+    SETTINGS.beginBookValues();
     bookSettingsPath = booksettings::pathForDocument(documentId);
     booksettings::applyOrCreate(bookSettingsPath);
   }
@@ -149,6 +151,9 @@ void ReaderActivity::onExit() {
 
   endOfBookOptions.reset();
   endOfBookOptionsReady.store(false, std::memory_order_release);
+
+  // Every way out of a book (Back, Home, sleep, another book, load failure) ends here.
+  SETTINGS.endBookValues();
 }
 
 void ReaderActivity::prepareForSleep() { flushReaderSession(); }

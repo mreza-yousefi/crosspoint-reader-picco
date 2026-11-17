@@ -105,6 +105,8 @@ class EpubReaderActivity final : public ReaderActivity {
   // page. Until renderBook() redraws, nothing may be painted straight onto it. Set by the loop task,
   // cleared by the render task.
   std::atomic<bool> pageBufferStale{false};
+  // The last page shown used the text grayscale (AA) pass. Render task only.
+  bool textGrayscaleOnGlass = false;
   // True while a deferred overlay chrome refresh (pushOverlayRefresh) may still
   // be running on the panel. settleOverlayRefresh() must run before the
   // framebuffer is touched or another differential refresh is pushed.

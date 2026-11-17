@@ -2381,6 +2381,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   if (!quietRepaintPass && !paintOnlyPass) forcedRefreshPending = false;
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
+  // Gray AA pixels on the glass are not in the B/W buffer, so a fast refresh
+  // leaves them: after AA is turned off, clean them with one HALF refresh.
+  if (!quietRepaintPass && !paintOnlyPass) {
+    if (textGrayscaleOnGlass && !needsTextGrayscale) pagesUntilFullRefresh = 1;
+    textGrayscaleOnGlass = needsTextGrayscale;
+  }
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool absoluteImageGrayscale =
       pageHasImages && !gpio.deviceIsX3() &&
@@ -2872,8 +2878,8 @@ void EpubReaderActivity::renderStatusBar() const {
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr StrId kTextRowNames[] = {StrId::STR_FONT, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
-                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING};
+constexpr StrId kTextRowNames[] = {StrId::STR_FONT,           StrId::STR_FONT_SIZE,     StrId::STR_LINE_SPACING,
+                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING, StrId::STR_TEXT_AA};
 constexpr StrId kAlignIds[] = {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                                StrId::STR_BOOK_S_STYLE};
 constexpr int kTextRowCount = static_cast<int>(std::size(kTextRowNames));
@@ -3279,6 +3285,7 @@ void EpubReaderActivity::renderOverlay() {
     model.rowValue = [this](int i) { return textRowValue(i); };
     model.rowCheckbox = [](void*, int i, freeink::ui::ListItem& item) {
       if (i == 4) GUI.setCheckboxRow(item, SETTINGS.focusReadingEnabled);
+      if (i == 5) GUI.setCheckboxRow(item, SETTINGS.textAntiAliasing);
     };
   } else {
     model.panelTitle = tr(STR_TOOL_MORE);
@@ -3421,6 +3428,9 @@ void EpubReaderActivity::handleOverlayInput() {
       } else if (panelIndex == 4) {
         // Focus Reading is a genuine on/off: a tap toggles and applies live.
         SETTINGS.focusReadingEnabled = SETTINGS.focusReadingEnabled ? 0 : 1;
+        applyTextSettingLive();
+      } else if (panelIndex == 5) {
+        SETTINGS.textAntiAliasing = SETTINGS.textAntiAliasing ? 0 : 1;
         applyTextSettingLive();
       } else {
         // Enum rows open the Settings-style option picker.

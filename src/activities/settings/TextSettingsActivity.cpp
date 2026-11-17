@@ -20,6 +20,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookSettings.h"
+#include "util/BookSettingsMerge.h"
 
 namespace fui = freeink::ui;
 
@@ -79,6 +80,13 @@ const char* TextSettingsActivity::tabLabel(const int index) const { return I18N.
 void TextSettingsActivity::onEnter() {
   UiTabListActivity::onEnter();
 
+  editingDefaults_ = !SETTINGS.bookValuesActive();
+  if (editingDefaults_) {
+    // The last book's font may still be loaded; the preview needs the defaults' font.
+    RenderLock lock;
+    sdFontSystem.ensureLoaded(renderer);
+  }
+
   metrics_ = UITheme::getInstance().getMetrics();
   const Rect safeArea = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int safeBottom = safeArea.y + safeArea.height;
@@ -108,6 +116,16 @@ void TextSettingsActivity::onEnter() {
   tabNavs[static_cast<int>(tab_)].selected = 0;  // screen opens with the tab bar focused, not a list row
 
   rebuildRowItems();
+
+  if (editingDefaults_) {
+    entryValues_.clear();
+    SETTINGS.readingSettingsToJson(entryValues_);
+  }
+}
+
+void TextSettingsActivity::onExit() {
+  entryValues_.clear();
+  UiTabListActivity::onExit();
 }
 
 // Rebuilds rowItems_ (label + actionValue) for the active tab. Structural —
@@ -190,12 +208,20 @@ void TextSettingsActivity::activateIndex(const int index) {
 }
 
 bool TextSettingsActivity::handleCustomInput() {
-  return optionPopup_.handleInput(mappedInput, [this] { requestUpdate(); });
+  const bool handled = optionPopup_.handleInput(mappedInput, [this] { requestUpdate(); });
+  if (applyPromptOpen_ && !optionPopup_.isActive()) {
+    // Back or a tap outside the prompt: the global values are already saved (New books only).
+    applyPromptOpen_ = false;
+    if (applyToAllBooks_) applyChangesToAllBooks();
+    finish();
+    return true;
+  }
+  return handled;
 }
 
 bool TextSettingsActivity::handleButtons() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    finish();
+    leave();
     return true;
   }
 
@@ -305,6 +331,16 @@ void TextSettingsActivity::drawChrome() {
 void TextSettingsActivity::drawFooter() {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabelText(), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  switch (statusPopup_.load()) {
+    case StatusPopup::Applying:
+      GUI.drawPopup(renderer, tr(STR_APPLYING));
+      break;
+    case StatusPopup::NotAllUpdated:
+      GUI.drawPopup(renderer, tr(STR_SOME_BOOKS_NOT_UPDATED));
+      break;
+    default:
+      break;
+  }
 }
 
 void TextSettingsActivity::render(RenderLock&& lock) {
@@ -381,6 +417,47 @@ void TextSettingsActivity::activateRow(int row) {
 
 void TextSettingsActivity::saveSettings() const { booksettings::persist(bookSettingsPath_); }
 
+void TextSettingsActivity::leave() {
+  if (!editingDefaults_) {
+    finish();
+    return;
+  }
+  JsonDocument current;
+  readCurrentValues(current);
+  if (!booksettings::hasChangedKeys(entryValues_.as<JsonObjectConst>(), current.as<JsonObjectConst>())) {
+    finish();
+    return;
+  }
+  const char* options[] = {tr(STR_NEW_BOOKS_ONLY), tr(STR_ALL_BOOKS)};
+  applyToAllBooks_ = false;
+  applyPromptOpen_ = true;
+  optionPopup_.show(tr(STR_APPLY_CHANGES_TO), options, static_cast<int>(std::size(options)), 0,
+                    [this](const int idx) { applyToAllBooks_ = idx == 1; });
+  requestUpdate();
+}
+
+// A family change snaps the size into that family's set. Unless a size was
+// picked here, keep the entry size so other books keep their own (each book
+// snaps its size to its family when opened).
+void TextSettingsActivity::readCurrentValues(JsonDocument& doc) const {
+  SETTINGS.readingSettingsToJson(doc);
+  if (!sizeChosen_) doc["fontSize"] = entryValues_["fontSize"];
+}
+
+void TextSettingsActivity::applyChangesToAllBooks() {
+  statusPopup_ = StatusPopup::Applying;
+  requestUpdateAndWait();  // shows the popup before the SD work
+  JsonDocument current;
+  readCurrentValues(current);
+  const int failed =
+      booksettings::applyChangesToAllBooks(entryValues_.as<JsonObjectConst>(), current.as<JsonObjectConst>());
+  if (failed > 0) {
+    statusPopup_ = StatusPopup::NotAllUpdated;
+    requestUpdateAndWait();
+    delay(1500);  // long enough to read before the screen closes
+  }
+}
+
 // Factory defaults for this book's reading settings. The reader re-lays the
 // book out when this screen closes, as after any other change here.
 void TextSettingsActivity::resetBookLayout() {
@@ -404,6 +481,7 @@ void TextSettingsActivity::applySize(int listIndex) {
 
   currentSizeIndex_ = listIndex;
   SETTINGS.fontPointSize = sizes_[listIndex].pointSize;
+  sizeChosen_ = true;
   sdFontSystem.ensureLoaded(renderer);
 }
 

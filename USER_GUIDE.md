@@ -300,8 +300,12 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
 
 **Per-book text settings (this fork).** Each EPUB book keeps its own text settings: font family and size, line, word and character spacing, extra paragraph spacing, paragraph indentation, alignment, screen margin, focus reading, hyphenation, embedded style and text anti-aliasing. Other reader settings (such as Images and Reading Orientation) stay global.
 
-- Changes made in **Text Settings** from the Reader Menu, or in the **Text** panel of the reader toolbar, apply to the open book only. The values are saved for that book and are used again every time you open it.
-- **Settings → Reader → Text Settings**, with no book open, sets the values for books you have not opened yet. A book you open for the first time starts with the last values used: those of the last book you opened, or those set here afterwards with no book open.
+- Changes made in **Text Settings** from the Reader Menu, or in the **Text** panel of the reader toolbar, apply to the open book only. The values are saved for that book and are used again every time you open it. The **Text** panel has a **Text Anti-Aliasing** on/off row (this fork); turning it off cleans the gray edges with one full refresh.
+- **Settings → Reader → Text Settings** holds the defaults: the values a book you open for the first time starts with. Only this screen (and the web settings page) changes them; changes inside a book never do. Settings always shows the defaults, not the values of the last book you read.
+- When you leave **Settings → Reader → Text Settings** after changing something, it asks **Apply changes to**:
+  - **New books only** (or **Back**) keeps the books you already opened as they are. Going Home or to sleep from this screen does the same.
+  - **All books** also writes the changed values to every book you opened before, while "Applying..." shows. Only the settings you changed are written: if you turned Text Anti-Aliasing off, every book gets it off and keeps its own font, size and other values. A font change keeps each book's own size unless you also chose a size. If a layout value changed (font, size, spacing, indentation, alignment, margin, hyphenation, embedded style, focus reading), each book is laid out again the next time you open it. If some books could not be updated, "Some books not updated" shows.
+- Text settings changed on the web settings page change only the values for new books; there is no "All books" there.
 - **Text Settings → Layout → Reset Text Settings** (only with a book open) sets this book's text settings back to the factory defaults and lays the book out again.
 - The settings are stored in `/.crosspoint/book-settings/`, one small file per book. The file name comes from the book's content, so the settings stay with a book you rename or move. **Clear Reading Cache** does not delete them, and Home Backup includes them.
 
@@ -342,7 +346,7 @@ The Reader settings are:
 
 - **Ignore Short Opens in Stats** (this fork): Leave reading sessions under a minute, or without a page turn, out of the [Reading Stats](#39-reading-stats-fork). They stay recorded; switching this changes the totals at once. On by default.
 
-- **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly.
+- **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly. **This fork:** saved per book; to change it for books you already opened, choose **All books** when you leave Text Settings (see [Per-book text settings](#362-reader)).
 
 - **Images**: How embedded images (JPG/PNG/GIF) in EPUB files are shown. GIFs render only the first frame; interlaced GIFs are not supported.
   - **Display** (default): images in gray levels. Pages with images take an extra grayscale refresh.

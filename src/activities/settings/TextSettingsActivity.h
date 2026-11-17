@@ -1,7 +1,9 @@
 #pragma once
 
+#include <ArduinoJson.h>
 #include <SdCardFontRegistry.h>
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -25,6 +27,7 @@ class TextSettingsActivity final : public UiTabListActivity {
                        Tab initialTab = Tab::Family, std::string bookSettingsPath = {});
 
   void onEnter() override;
+  void onExit() override;
   void render(RenderLock&&) override;
 
  private:
@@ -62,6 +65,10 @@ class TextSettingsActivity final : public UiTabListActivity {
   // Saves SETTINGS and, with a book open, the book's settings file.
   void saveSettings() const;
   void resetBookLayout();
+  // Back: after a change to the defaults, asks which books get the changes.
+  void leave();
+  void readCurrentValues(JsonDocument& doc) const;
+  void applyChangesToAllBooks();
   // Repopulates sizes_ (and currentSizeIndex_) from the active family's
   // installed point sizes. Call after any family change.
   void rebuildSizeList();
@@ -99,6 +106,14 @@ class TextSettingsActivity final : public UiTabListActivity {
 
   const SdCardFontRegistry* registry_;
   std::string bookSettingsPath_;
+  bool editingDefaults_ = false;  // opened from Settings, no book open
+  // Defaults only: the per-book values on entry, compared on Back (see leave()).
+  JsonDocument entryValues_;
+  bool applyPromptOpen_ = false;
+  bool applyToAllBooks_ = false;
+  bool sizeChosen_ = false;  // a size was picked this visit, not only snapped by a family change
+  enum class StatusPopup : uint8_t { None, Applying, NotAllUpdated };
+  std::atomic<StatusPopup> statusPopup_{StatusPopup::None};  // drawn by the render task
   OptionPopup optionPopup_;
   std::vector<FontEntry> fonts_;
   std::vector<SizeEntry> sizes_;

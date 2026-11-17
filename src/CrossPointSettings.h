@@ -543,12 +543,25 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   bool readingSettingsFromJson(JsonVariantConst doc);
   void resetReadingSettings();
 
+  // While a book is open its text settings live in SETTINGS and the defaults
+  // wait in readingDefaults_. toJson() writes the defaults, so settings.json
+  // never holds a book's values. begin keeps the current values as the
+  // defaults (no-op if already active); end puts them back into SETTINGS.
+  void beginBookValues();
+  void endBookValues();
+  bool bookValuesActive() const { return bookValuesActive_; }
+
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
 
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
+
+ private:
+  // readingSettingsToJson() of the defaults; empty while no book is open.
+  JsonDocument readingDefaults_;
+  bool bookValuesActive_ = false;
 };
 
 // Helper macro to access settings
